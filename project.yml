@@ -1,0 +1,35 @@
+name: DeepFate
+options:
+  bundleIdPrefix: com.guozhenyu
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  DeepFate:
+    type: application
+    platform: iOS
+    sources:
+      - path: DeepFate
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.guozhenyu.deepfate
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: DeepFate
+        INFOPLIST_KEY_UILaunchScreen_Generation: NO
+        INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: 允许访问本地网络以连接后端服务
+        INFOPLIST_KEY_NSFaceIDUsageDescription: 用于安全登录与身份验证
+        INFOPLIST_KEY_NSCameraUsageDescription: 用于拍摄头像照片
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: 用于选择头像照片
+        INFOPLIST_KEY_NSAppTransportSecurity__NSAllowsArbitraryLoads: YES
+        MARKETING_VERSION: 1.0
+        CURRENT_PROJECT_VERSION: 1
+    dependencies:
+      - package: MarkdownUI
+
+packages:
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/MarkdownUI
+    from: 2.0.0

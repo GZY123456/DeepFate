@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+*.xcuserstate
+xcuserdata/
+
+# Xcode
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.hmap
+*.xccheckout
+*.xcscmblueprint
+
+# 本地工具（XcodeGen 等按 README 自行安装）
+.tools/
+
+# Python / 后端
+backend/.venv/
+backend/__pycache__/
+backend/*.pyc
+backend/.env
+backend/postgres_data/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# 环境与密钥（切勿提交）
+.env
+.env.local
+*.pem

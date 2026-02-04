@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # 数据库服务：使用内置 pgvector 的 PostgreSQL 16 镜像
+  db:
+    image: pgvector/pgvector:pg16 # 专门为 AI/向量检索优化的镜像
+    container_name: deepfate_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: gzy152399 # 请替换为你自己的密码
+      POSTGRES_DB: deepfate
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data # 持久化存储，防止容器删除后数据丢失
+
+  # 后端服务：Spark 代理 + 排盘（lunar_python）+ 档案/用户接口
+  backend:
+    build: .
+    container_name: deepfate_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: deepfate
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: gzy152399 # 需与上方 db 一致
+    depends_on:
+      - db
+
+  # 可视化管理工具：pgAdmin
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: deepfate_pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@deepfate.com # 登录 pgAdmin 的邮箱
+      PGADMIN_DEFAULT_PASSWORD: admin_password  # 登录 pgAdmin 的密码
+    ports:
+      - "8080:80" # 在浏览器访问 localhost:8080 即可打开界面
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:

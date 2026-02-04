@@ -1,0 +1,516 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 63;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		13D5F1FC65BC6BF595D8E704 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 3887D1FF5CE9E848EE2FA540 /* LaunchScreen.storyboard */; };
+		14AE740A28A348A68CFC3C16 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EF65ADF5244C38F1440E0F1 /* ChatMessage.swift */; };
+		18CA2D367D76DF1FD9E83072 /* BaZiModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2102141037C6D328A5794BB7 /* BaZiModel.swift */; };
+		1AE7FA1B75B5AF0D0CC53A82 /* ProfileModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7AB1C4A4DE649E15AAA8ED /* ProfileModels.swift */; };
+		2495E1D034207D6B9267F9DC /* DeepFateApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 821AD2A01C74810BE03762BC /* DeepFateApp.swift */; };
+		2982EA7AFAB8B4C2CEDB5463 /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9731ACAACF3303DA8F9CF668 /* ProfileStore.swift */; };
+		34F48030E67942DECD8B9BD1 /* DrawResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51D4B2E5240ED8A8AD073EC /* DrawResultView.swift */; };
+		42F667851A562F9961007BF0 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BD5266027387C7BC2B6924 /* SettingsView.swift */; };
+		45570D3946DA700376FC496F /* ProfileSyncClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD6E8D3101EEC60A48E08B3 /* ProfileSyncClient.swift */; };
+		499FFA9EC18AA125D32CA461 /* SplashScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70EFEA5ED9AA28D771A958AE /* SplashScreen.swift */; };
+		4F2CBF2EF20E6D6CBCF41F1E /* SpeechManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C8B941AE90539C0EDB6FE6 /* SpeechManager.swift */; };
+		55092B14A1119D702C90C245 /* LocationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317DC07BAD7D6E67EC9FBC60 /* LocationStore.swift */; };
+		56DDEA16CD7F87ACB6E63797 /* AccountSwitcherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB1BF995369BDA47C1F157C1 /* AccountSwitcherView.swift */; };
+		57D7618375D8C105FDFF61FA /* ConsultRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDA4FD9A648177B183EFFA0 /* ConsultRouter.swift */; };
+		5B46C8091F633396DCAB5074 /* DrawClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D0483FF53FF214349A48BDC /* DrawClient.swift */; };
+		5D6A59B47A020FAA708630DF /* SparkChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE6F5F572549CCBD09D8F77A /* SparkChatClient.swift */; };
+		5F9F8782AFB29B6EB998C0B9 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = AAF128C023A6C7D04777504A /* MarkdownUI */; };
+		607CC11252EF20059A1FA519 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7C37F3183484FE9A70D1FBD /* LoginView.swift */; };
+		84167ED665754EB811D681D3 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F708A106987E1C83D9DA3917 /* HomeView.swift */; };
+		8894368E4D148E69A8D82F0E /* FortuneChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90E09CE8CCC9899BACC6C111 /* FortuneChartView.swift */; };
+		8C1B29D9A60FB4B81ACB1B3F /* ArchiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE1E2691C39EB850EBB42887 /* ArchiveView.swift */; };
+		9B5DF8E3AC81844F9E482120 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D21ACF4FBEA1FBFDA646CA2 /* MainView.swift */; };
+		A0EF070D65591B40B59682CF /* ImagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8757C1E8730A73F4A249835C /* ImagePicker.swift */; };
+		A8072D8EDCF892CEA1DC54BC /* DrawModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADBDB7C12EF1A6E2AF6C22B7 /* DrawModels.swift */; };
+		AE07B071EE52DF7BE75CC748 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 37B9B89B3843CCE811F3D9FA /* Assets.xcassets */; };
+		B0EA6DA0B4A8FBB940FA0E82 /* XiuXinView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8E31855AE4C64DDB3F1C3F /* XiuXinView.swift */; };
+		B18CFCAF4B7A6FB50BE3C775 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B6823282D27DCDE51496CA7 /* ProfileView.swift */; };
+		B800EF6C7701DFD24FD4AC27 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C922FAD0993FB5E927DCFFF /* ContentView.swift */; };
+		BA4731617EB82455C400FE91 /* ChatBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE738B029EEEB9D8F2B8283 /* ChatBubbleView.swift */; };
+		C14B3B41D7D815E8A813AEA3 /* CreateProfileSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B801E73C6A2C43ADF6A5A70 /* CreateProfileSheet.swift */; };
+		E537885FEE3A251D4C1CD237 /* ChartClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD55EFE8CD1F6DC04A479B89 /* ChartClient.swift */; };
+		E98E10B4EA40218EBB6EDA12 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BE079E7E530179C704B0946 /* AuthViewModel.swift */; };
+		EC3DA611E1DCB7D0EF90ECC0 /* SuggestionChipsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16394B505FFC7A88F552A37B /* SuggestionChipsView.swift */; };
+		EC5F84D2A402B09D39C9A446 /* ProfilePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04877FD886D3E5A92F0AFA67 /* ProfilePickerSheet.swift */; };
+		F588157BF4EBD3B01164BDA2 /* OneThingDrawView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68B0453144C14950F8F906F1 /* OneThingDrawView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		04877FD886D3E5A92F0AFA67 /* ProfilePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePickerSheet.swift; sourceTree = "<group>"; };
+		0EF65ADF5244C38F1440E0F1 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
+		16394B505FFC7A88F552A37B /* SuggestionChipsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuggestionChipsView.swift; sourceTree = "<group>"; };
+		182E1D3D1161150FBDD7EF7B /* DeepFate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DeepFate.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1CE738B029EEEB9D8F2B8283 /* ChatBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBubbleView.swift; sourceTree = "<group>"; };
+		2102141037C6D328A5794BB7 /* BaZiModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaZiModel.swift; sourceTree = "<group>"; };
+		2B6823282D27DCDE51496CA7 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		2D21ACF4FBEA1FBFDA646CA2 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
+		317DC07BAD7D6E67EC9FBC60 /* LocationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationStore.swift; sourceTree = "<group>"; };
+		37B9B89B3843CCE811F3D9FA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3887D1FF5CE9E848EE2FA540 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		3D0483FF53FF214349A48BDC /* DrawClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawClient.swift; sourceTree = "<group>"; };
+		4BE079E7E530179C704B0946 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
+		52C8B941AE90539C0EDB6FE6 /* SpeechManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechManager.swift; sourceTree = "<group>"; };
+		64BD5266027387C7BC2B6924 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		68B0453144C14950F8F906F1 /* OneThingDrawView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneThingDrawView.swift; sourceTree = "<group>"; };
+		6A734EC86DB9A331A787B6E6 /* DeepFate.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DeepFate.entitlements; sourceTree = "<group>"; };
+		70EFEA5ED9AA28D771A958AE /* SplashScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashScreen.swift; sourceTree = "<group>"; };
+		7C922FAD0993FB5E927DCFFF /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		821AD2A01C74810BE03762BC /* DeepFateApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepFateApp.swift; sourceTree = "<group>"; };
+		8757C1E8730A73F4A249835C /* ImagePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePicker.swift; sourceTree = "<group>"; };
+		90E09CE8CCC9899BACC6C111 /* FortuneChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FortuneChartView.swift; sourceTree = "<group>"; };
+		9731ACAACF3303DA8F9CF668 /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
+		9B801E73C6A2C43ADF6A5A70 /* CreateProfileSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateProfileSheet.swift; sourceTree = "<group>"; };
+		ADBDB7C12EF1A6E2AF6C22B7 /* DrawModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawModels.swift; sourceTree = "<group>"; };
+		AF7AB1C4A4DE649E15AAA8ED /* ProfileModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileModels.swift; sourceTree = "<group>"; };
+		B7C37F3183484FE9A70D1FBD /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		BB1BF995369BDA47C1F157C1 /* AccountSwitcherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSwitcherView.swift; sourceTree = "<group>"; };
+		BD8E31855AE4C64DDB3F1C3F /* XiuXinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiuXinView.swift; sourceTree = "<group>"; };
+		BE1E2691C39EB850EBB42887 /* ArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveView.swift; sourceTree = "<group>"; };
+		C51D4B2E5240ED8A8AD073EC /* DrawResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawResultView.swift; sourceTree = "<group>"; };
+		CD55EFE8CD1F6DC04A479B89 /* ChartClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartClient.swift; sourceTree = "<group>"; };
+		CDD6E8D3101EEC60A48E08B3 /* ProfileSyncClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSyncClient.swift; sourceTree = "<group>"; };
+		DE6F5F572549CCBD09D8F77A /* SparkChatClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkChatClient.swift; sourceTree = "<group>"; };
+		EFDA4FD9A648177B183EFFA0 /* ConsultRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsultRouter.swift; sourceTree = "<group>"; };
+		F708A106987E1C83D9DA3917 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C056832DD40B7E3B4FED75BC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5F9F8782AFB29B6EB998C0B9 /* MarkdownUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		128E405BC0300EA0544DB913 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				4BE079E7E530179C704B0946 /* AuthViewModel.swift */,
+				CD55EFE8CD1F6DC04A479B89 /* ChartClient.swift */,
+				EFDA4FD9A648177B183EFFA0 /* ConsultRouter.swift */,
+				3D0483FF53FF214349A48BDC /* DrawClient.swift */,
+				317DC07BAD7D6E67EC9FBC60 /* LocationStore.swift */,
+				9731ACAACF3303DA8F9CF668 /* ProfileStore.swift */,
+				CDD6E8D3101EEC60A48E08B3 /* ProfileSyncClient.swift */,
+				DE6F5F572549CCBD09D8F77A /* SparkChatClient.swift */,
+				52C8B941AE90539C0EDB6FE6 /* SpeechManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		4448DB425D7ABCE37603990A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				182E1D3D1161150FBDD7EF7B /* DeepFate.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4B6132FCFCE1DE9330CBA648 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				2102141037C6D328A5794BB7 /* BaZiModel.swift */,
+				ADBDB7C12EF1A6E2AF6C22B7 /* DrawModels.swift */,
+				AF7AB1C4A4DE649E15AAA8ED /* ProfileModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		53046901C3E6131ACDF0D54C = {
+			isa = PBXGroup;
+			children = (
+				BE15E0A3B446AA4E35E18ED8 /* DeepFate */,
+				4448DB425D7ABCE37603990A /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		6396D4FA58BD6AA7421FDA5E /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				BB1BF995369BDA47C1F157C1 /* AccountSwitcherView.swift */,
+				BE1E2691C39EB850EBB42887 /* ArchiveView.swift */,
+				9B801E73C6A2C43ADF6A5A70 /* CreateProfileSheet.swift */,
+				C51D4B2E5240ED8A8AD073EC /* DrawResultView.swift */,
+				90E09CE8CCC9899BACC6C111 /* FortuneChartView.swift */,
+				F708A106987E1C83D9DA3917 /* HomeView.swift */,
+				8757C1E8730A73F4A249835C /* ImagePicker.swift */,
+				B7C37F3183484FE9A70D1FBD /* LoginView.swift */,
+				2D21ACF4FBEA1FBFDA646CA2 /* MainView.swift */,
+				68B0453144C14950F8F906F1 /* OneThingDrawView.swift */,
+				04877FD886D3E5A92F0AFA67 /* ProfilePickerSheet.swift */,
+				2B6823282D27DCDE51496CA7 /* ProfileView.swift */,
+				64BD5266027387C7BC2B6924 /* SettingsView.swift */,
+				70EFEA5ED9AA28D771A958AE /* SplashScreen.swift */,
+				BD8E31855AE4C64DDB3F1C3F /* XiuXinView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A65A553D3355958A3DE9DFD9 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				1CE738B029EEEB9D8F2B8283 /* ChatBubbleView.swift */,
+				0EF65ADF5244C38F1440E0F1 /* ChatMessage.swift */,
+				16394B505FFC7A88F552A37B /* SuggestionChipsView.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		BE15E0A3B446AA4E35E18ED8 /* DeepFate */ = {
+			isa = PBXGroup;
+			children = (
+				37B9B89B3843CCE811F3D9FA /* Assets.xcassets */,
+				7C922FAD0993FB5E927DCFFF /* ContentView.swift */,
+				6A734EC86DB9A331A787B6E6 /* DeepFate.entitlements */,
+				821AD2A01C74810BE03762BC /* DeepFateApp.swift */,
+				3887D1FF5CE9E848EE2FA540 /* LaunchScreen.storyboard */,
+				A65A553D3355958A3DE9DFD9 /* Components */,
+				4B6132FCFCE1DE9330CBA648 /* Models */,
+				128E405BC0300EA0544DB913 /* Services */,
+				6396D4FA58BD6AA7421FDA5E /* Views */,
+			);
+			path = DeepFate;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B456603CC62A7034F9320882 /* DeepFate */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F0AA81B524A8A80C5DC25FD0 /* Build configuration list for PBXNativeTarget "DeepFate" */;
+			buildPhases = (
+				840CE13C3BD070D82F232982 /* Sources */,
+				03EF5F378F30ED317B1524D4 /* Resources */,
+				C056832DD40B7E3B4FED75BC /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DeepFate;
+			packageProductDependencies = (
+				AAF128C023A6C7D04777504A /* MarkdownUI */,
+			);
+			productName = DeepFate;
+			productReference = 182E1D3D1161150FBDD7EF7B /* DeepFate.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		22336C5CE8FBB706E643FEED /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = E3465629E6396087E5235F69 /* Build configuration list for PBXProject "DeepFate" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 53046901C3E6131ACDF0D54C;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				79B3CCE204C97B954C6EA2AF /* XCRemoteSwiftPackageReference "MarkdownUI" */,
+			);
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B456603CC62A7034F9320882 /* DeepFate */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		03EF5F378F30ED317B1524D4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AE07B071EE52DF7BE75CC748 /* Assets.xcassets in Resources */,
+				13D5F1FC65BC6BF595D8E704 /* LaunchScreen.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		840CE13C3BD070D82F232982 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				56DDEA16CD7F87ACB6E63797 /* AccountSwitcherView.swift in Sources */,
+				8C1B29D9A60FB4B81ACB1B3F /* ArchiveView.swift in Sources */,
+				E98E10B4EA40218EBB6EDA12 /* AuthViewModel.swift in Sources */,
+				18CA2D367D76DF1FD9E83072 /* BaZiModel.swift in Sources */,
+				E537885FEE3A251D4C1CD237 /* ChartClient.swift in Sources */,
+				BA4731617EB82455C400FE91 /* ChatBubbleView.swift in Sources */,
+				14AE740A28A348A68CFC3C16 /* ChatMessage.swift in Sources */,
+				57D7618375D8C105FDFF61FA /* ConsultRouter.swift in Sources */,
+				B800EF6C7701DFD24FD4AC27 /* ContentView.swift in Sources */,
+				C14B3B41D7D815E8A813AEA3 /* CreateProfileSheet.swift in Sources */,
+				2495E1D034207D6B9267F9DC /* DeepFateApp.swift in Sources */,
+				5B46C8091F633396DCAB5074 /* DrawClient.swift in Sources */,
+				A8072D8EDCF892CEA1DC54BC /* DrawModels.swift in Sources */,
+				34F48030E67942DECD8B9BD1 /* DrawResultView.swift in Sources */,
+				8894368E4D148E69A8D82F0E /* FortuneChartView.swift in Sources */,
+				84167ED665754EB811D681D3 /* HomeView.swift in Sources */,
+				A0EF070D65591B40B59682CF /* ImagePicker.swift in Sources */,
+				55092B14A1119D702C90C245 /* LocationStore.swift in Sources */,
+				607CC11252EF20059A1FA519 /* LoginView.swift in Sources */,
+				9B5DF8E3AC81844F9E482120 /* MainView.swift in Sources */,
+				F588157BF4EBD3B01164BDA2 /* OneThingDrawView.swift in Sources */,
+				1AE7FA1B75B5AF0D0CC53A82 /* ProfileModels.swift in Sources */,
+				EC5F84D2A402B09D39C9A446 /* ProfilePickerSheet.swift in Sources */,
+				2982EA7AFAB8B4C2CEDB5463 /* ProfileStore.swift in Sources */,
+				45570D3946DA700376FC496F /* ProfileSyncClient.swift in Sources */,
+				B18CFCAF4B7A6FB50BE3C775 /* ProfileView.swift in Sources */,
+				42F667851A562F9961007BF0 /* SettingsView.swift in Sources */,
+				5D6A59B47A020FAA708630DF /* SparkChatClient.swift in Sources */,
+				4F2CBF2EF20E6D6CBCF41F1E /* SpeechManager.swift in Sources */,
+				499FFA9EC18AA125D32CA461 /* SplashScreen.swift in Sources */,
+				EC3DA611E1DCB7D0EF90ECC0 /* SuggestionChipsView.swift in Sources */,
+				B0EA6DA0B4A8FBB940FA0E82 /* XiuXinView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		186B943324EAD9A97B7214BB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7Z8GTRV3W3;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = DeepFate;
+				INFOPLIST_KEY_NSAppTransportSecurity__NSAllowsArbitraryLoads = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄头像照片";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "用于安全登录与身份验证";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "允许访问本地网络以连接后端服务";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择头像照片";
+				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.guozhenyu.deepfate;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		7160F51A195A70002748F58C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		7EBF725748D38964A2D429A0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7Z8GTRV3W3;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = DeepFate;
+				INFOPLIST_KEY_NSAppTransportSecurity__NSAllowsArbitraryLoads = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄头像照片";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "用于安全登录与身份验证";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "允许访问本地网络以连接后端服务";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择头像照片";
+				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.guozhenyu.deepfate;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		84050BAF70F6428B86F388A8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		E3465629E6396087E5235F69 /* Build configuration list for PBXProject "DeepFate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				84050BAF70F6428B86F388A8 /* Debug */,
+				7160F51A195A70002748F58C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F0AA81B524A8A80C5DC25FD0 /* Build configuration list for PBXNativeTarget "DeepFate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7EBF725748D38964A2D429A0 /* Debug */,
+				186B943324EAD9A97B7214BB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		79B3CCE204C97B954C6EA2AF /* XCRemoteSwiftPackageReference "MarkdownUI" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/MarkdownUI";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AAF128C023A6C7D04777504A /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 79B3CCE204C97B954C6EA2AF /* XCRemoteSwiftPackageReference "MarkdownUI" */;
+			productName = MarkdownUI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 22336C5CE8FBB706E643FEED /* Project object */;
+}
