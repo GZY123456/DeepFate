@@ -288,19 +288,28 @@ private struct BaziChartGridView: View {
             rowShenSha(title: "神煞", pillars: bazi.pillars)
                 .background(rowBgA)
             divider
-            rowSingleLine(title: "胎元", text: (bazi.taiYuan?.isEmpty == false) ? bazi.taiYuan! : "—")
-                .background(rowBgB)
+            rowLabel("胎元", cells: [
+                (bazi.taiYuan?.isEmpty == false) ? bazi.taiYuan! : "—",
+                "—", "—", "—"
+            ], large: false)
+            .background(rowBgB)
             divider
-            rowSingleLine(title: "命宫", text: (bazi.mingGong?.isEmpty == false) ? bazi.mingGong! : "—")
+            rowLabel("命宫", cells: [
+                (bazi.mingGong?.isEmpty == false) ? bazi.mingGong! : "—",
+                "—", "—", "—"
+            ], large: false)
+            .background(rowBgA)
+            divider
+            rowLabel("身宫", cells: [
+                (bazi.shenGong?.isEmpty == false) ? bazi.shenGong! : "—",
+                "—", "—", "—"
+            ], large: false)
+            .background(rowBgB)
+            divider
+            rowColumnList(title: "大运", items: bazi.daYun ?? [])
                 .background(rowBgA)
             divider
-            rowSingleLine(title: "身宫", text: (bazi.shenGong?.isEmpty == false) ? bazi.shenGong! : "—")
-                .background(rowBgB)
-            divider
-            rowSingleLine(title: "大运", text: (bazi.daYun?.isEmpty == false) ? bazi.daYun!.joined(separator: " · ") : "—")
-                .background(rowBgA)
-            divider
-            rowSingleLine(title: "流年", text: (bazi.liuNian?.isEmpty == false) ? bazi.liuNian!.joined(separator: " · ") : "—")
+            rowColumnList(title: "流年", items: bazi.liuNian ?? [])
                 .background(rowBgB)
             if let rel = bazi.ganRelationText, !rel.isEmpty {
                 divider
@@ -469,6 +478,31 @@ private struct BaziChartGridView: View {
                 .padding(.vertical, 10)
                 .padding(.leading, 6)
                 .padding(.trailing, 6)
+        }
+    }
+
+    private func rowColumnList(title: String, items: [String]) -> some View {
+        let showItems = items.isEmpty ? ["—"] : items
+        return HStack(alignment: .top, spacing: 0) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(textLabel)
+                .frame(width: labelColumnWidth, alignment: .leading)
+                .padding(.vertical, 10)
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 2),
+                alignment: .leading,
+                spacing: 6
+            ) {
+                ForEach(showItems, id: \.self) { item in
+                    Text(item)
+                        .font(.caption)
+                        .foregroundStyle(item == "—" ? textPlaceholder : textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.vertical, 10)
+            .padding(.leading, 6)
         }
     }
 }
