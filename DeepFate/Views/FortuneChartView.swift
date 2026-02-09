@@ -29,6 +29,7 @@ struct FortuneChartView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showProfilePicker = false
+    @State private var loadTask: Task<Void, Never>?
 
     private let chartClient = ChartClient()
 
@@ -70,6 +71,10 @@ struct FortuneChartView: View {
             if selectedProfile == nil, let p = effectiveProfile {
                 loadChart(for: p)
             }
+        }
+        .onDisappear {
+            loadTask?.cancel()
+            loadTask = nil
         }
     }
 
@@ -185,6 +190,7 @@ struct FortuneChartView: View {
     }
 
     private func loadChart(for profile: UserProfile) {
+        loadTask?.cancel()
         let comp = profile.trueSolarComponents
         let year = comp.year ?? 2000
         let month = comp.month ?? 1
@@ -197,7 +203,7 @@ struct FortuneChartView: View {
         isLoading = true
         errorMessage = nil
         baziModel = nil
-        Task {
+        loadTask = Task {
             do {
                 let result = try await chartClient.fetchChart(
                     year: year,
@@ -212,11 +218,18 @@ struct FortuneChartView: View {
                     chartText = result.content
                     baziModel = result.bazi
                     isLoading = false
+                    loadTask = nil
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    isLoading = false
+                    loadTask = nil
                 }
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription
                     isLoading = false
+                    loadTask = nil
                 }
             }
         }
@@ -483,26 +496,47 @@ private struct BaziChartGridView: View {
 
     private func rowColumnList(title: String, items: [String]) -> some View {
         let showItems = items.isEmpty ? ["—"] : items
+        let rows = stride(from: 0, to: showItems.count, by: 2).map { index in
+            Array(showItems[index..<min(index + 2, showItems.count)])
+        }
         return HStack(alignment: .top, spacing: 0) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(textLabel)
                 .frame(width: labelColumnWidth, alignment: .leading)
                 .padding(.vertical, 10)
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 2),
-                alignment: .leading,
-                spacing: 6
-            ) {
-                ForEach(showItems, id: \.self) { item in
-                    Text(item)
-                        .font(.caption)
-                        .foregroundStyle(item == "—" ? textPlaceholder : textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(alignment: .top, spacing: 12) {
+                        let left = row.first ?? "—"
+                        Text(formatDaYunItem(left))
+                            .font(.caption)
+                            .foregroundStyle(left == "—" ? textPlaceholder : textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        let right = row.count > 1 ? row[1] : "—"
+                        Text(formatDaYunItem(right))
+                            .font(.caption)
+                            .foregroundStyle(right == "—" ? textPlaceholder : textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             .padding(.vertical, 10)
             .padding(.leading, 6)
         }
+    }
+
+    private func formatDaYunItem(_ item: String) -> String {
+        guard item != "—" else { return item }
+        if let range = item.range(of: ") ") {
+            let left = item[..<range.upperBound].trimmingCharacters(in: .whitespaces)
+            let right = item[range.upperBound...].trimmingCharacters(in: .whitespaces)
+            if !right.isEmpty {
+                return "\(left)\n\(right)"
+            }
+        }
+        return item
     }
 }

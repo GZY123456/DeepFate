@@ -3,7 +3,12 @@ import Foundation
 /// 调用后端 /chart 生成八字排盘
 struct ChartClient {
     private let backend = SparkBackendConfig()
-    private let session = URLSession.shared
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 15
+        return URLSession(configuration: config)
+    }()
 
     /// 拉取排盘：返回全文 content（用于「问问AI」）与可选结构化 bazi（用于表格展示）
     func fetchChart(
@@ -21,6 +26,7 @@ struct ChartClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 12
         let body: [String: Any] = [
             "year": year,
             "month": month,
@@ -31,7 +37,12 @@ struct ChartClient {
             "gender": gender
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await session.data(for: request)
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw ChartError.timeout
+        }
         guard let http = response as? HTTPURLResponse else {
             throw ChartError.invalidResponse
         }
@@ -72,12 +83,14 @@ struct ChartClient {
 enum ChartError: LocalizedError {
     case invalidURL
     case invalidResponse
+    case timeout
     case serverError(code: Int, message: String?)
 
     var errorDescription: String? {
         switch self {
         case .invalidURL: return "无效的服务地址"
         case .invalidResponse: return "排盘响应格式异常"
+        case .timeout: return "排盘请求超时，请检查后端服务地址或网络连接"
         case let .serverError(code, msg): return "服务错误(\(code))：\(msg ?? "未知")"
         }
     }

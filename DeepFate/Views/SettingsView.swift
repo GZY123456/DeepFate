@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("isLoggedIn") private var isLoggedIn = false
     @AppStorage("loginName") private var loginName = ""
-    @AppStorage("backendBaseURL") private var backendBaseURL = "http://10.10.13.2:8000"
+    @AppStorage("backendBaseURL") private var backendBaseURL = "http://192.168.0.103:8000"
     @EnvironmentObject private var authViewModel: AuthViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var showFaceIdBind = false
