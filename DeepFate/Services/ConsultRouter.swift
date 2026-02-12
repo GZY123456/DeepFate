@@ -19,7 +19,7 @@ final class ConsultRouter: ObservableObject {
         用户档案信息：
         - 姓名：\(profile.name)
         - 性别：\(profile.gender.rawValue)
-        - 出生地：\(profile.location.province)\(profile.location.city)\(profile.location.district)
+        - 出生地：\(profile.location.fullDisplayText)
         - 出生时间（阳历）：\(formatDateComponents(profile.birthInfo.solarComponents))
         - 出生时间（阴历）：\(formatDateComponents(profile.birthInfo.lunarComponents))
         - 真太阳时：\(formatDateComponents(profile.trueSolarComponents))

@@ -5,6 +5,7 @@ struct CreateProfileSheet: View {
     let existingProfile: UserProfile?
     let onCreate: (UserProfile) -> Void
     @Environment(\.dismiss) private var dismiss
+    private let locationSearchClient = LocationSearchClient()
     @State private var step: Int = 0
     @State private var name: String
     @State private var gender: Gender
@@ -12,7 +13,10 @@ struct CreateProfileSheet: View {
     @State private var birthInfo: BirthInfo?
     @State private var errorMessage: String?
     @State private var showLocationHelp = false
-    @State private var selection: LocationSelection
+    @State private var locationQuery: String
+    @State private var locationSuggestions: [GeoLocationSuggestion]
+    @State private var selectedLocation: GeoLocationSuggestion?
+    @State private var isSearchingLocation: Bool
 
     init(
         provinces: [ProvinceOption],
@@ -37,54 +41,45 @@ struct CreateProfileSheet: View {
             _gender = State(initialValue: profile.gender)
             _birthInput = State(initialValue: prefill)
             _birthInfo = State(initialValue: profile.birthInfo)
-
-            let options = provinces.isEmpty ? defaultLocationOptions : provinces
-            var initialSelection = LocationSelection.defaultValue
-            if let provinceIndex = options.firstIndex(where: { $0.name == profile.location.province }) {
-                initialSelection.provinceIndex = provinceIndex
-                let cities = options[provinceIndex].cities
-                if let cityIndex = cities.firstIndex(where: { $0.name == profile.location.city }) {
-                    initialSelection.cityIndex = cityIndex
-                    let districts = cities[cityIndex].districts
-                    if let districtIndex = districts.firstIndex(where: { $0.name == profile.location.district }) {
-                        initialSelection.districtIndex = districtIndex
-                    }
-                }
-            }
-            _selection = State(initialValue: initialSelection)
+            let existingLocation = GeoLocationSuggestion(
+                id: profile.id.uuidString,
+                name: profile.location.district.isEmpty ? profile.location.city : profile.location.district,
+                province: profile.location.province,
+                city: profile.location.city,
+                district: profile.location.district,
+                detailAddress: profile.location.detailAddress,
+                fullAddress: profile.location.fullDisplayText,
+                longitude: profile.location.longitude,
+                latitude: profile.location.latitude,
+                timezoneID: profile.location.timezoneID,
+                utcOffsetMinutes: profile.location.utcOffsetMinutesAtBirth,
+                source: profile.location.placeSource,
+                adcode: profile.location.locationAdcode
+            )
+            _locationQuery = State(initialValue: profile.location.fullDisplayText)
+            _locationSuggestions = State(initialValue: [])
+            _selectedLocation = State(initialValue: existingLocation)
+            _isSearchingLocation = State(initialValue: false)
         } else {
             _name = State(initialValue: "")
             _gender = State(initialValue: .female)
             _birthInput = State(initialValue: BirthInput.defaultValue)
             _birthInfo = State(initialValue: nil)
-            _selection = State(initialValue: LocationSelection.defaultValue)
+            _locationQuery = State(initialValue: "")
+            _locationSuggestions = State(initialValue: [])
+            _selectedLocation = State(initialValue: nil)
+            _isSearchingLocation = State(initialValue: false)
         }
     }
 
-    private var currentProvinces: [ProvinceOption] {
-        provinces.isEmpty ? defaultLocationOptions : provinces
-    }
-
-    private var selectedProvince: ProvinceOption {
-        currentProvinces[safe: selection.provinceIndex] ?? currentProvinces[0]
-    }
-
-    private var selectedCity: CityOption {
-        selectedProvince.cities[safe: selection.cityIndex] ?? selectedProvince.cities[0]
-    }
-
-    private var selectedDistrict: DistrictOption {
-        selectedCity.districts[safe: selection.districtIndex] ?? selectedCity.districts[0]
-    }
-
     private var longitudeOffsetMinutes: Int {
-        let offset = (selectedDistrict.longitude - 120.0) * 4.0
+        let offset = ((selectedLocation?.longitude ?? 120.0) - 120.0) * 4.0
         return Int(offset.rounded())
     }
 
     private var trueSolarComponents: DateComponents? {
         guard let birthInfo else { return nil }
-        return computeTrueSolarComponents(from: birthInfo.solarComponents, longitude: selectedDistrict.longitude)
+        return computeTrueSolarComponents(from: birthInfo.solarComponents, longitude: selectedLocation?.longitude ?? 120.0)
     }
 
     private var isEditing: Bool {
@@ -107,10 +102,11 @@ struct CreateProfileSheet: View {
                     BirthTimeStep(input: $birthInput, errorMessage: $errorMessage)
                 default:
                     BirthLocationStep(
-                        provinces: currentProvinces,
-                        selection: $selection,
+                        query: $locationQuery,
+                        suggestions: locationSuggestions,
+                        selectedLocation: $selectedLocation,
+                        isSearching: isSearchingLocation,
                         showHelp: $showLocationHelp,
-                        selectedDistrict: selectedDistrict,
                         longitudeOffsetMinutes: longitudeOffsetMinutes,
                         trueSolarComponents: trueSolarComponents
                     )
@@ -143,12 +139,11 @@ struct CreateProfileSheet: View {
             .padding(.bottom, 8)
         }
         .padding(.horizontal)
-        .onChange(of: selection.provinceIndex) { _ in
-            selection.cityIndex = 0
-            selection.districtIndex = 0
-        }
-        .onChange(of: selection.cityIndex) { _ in
-            selection.districtIndex = 0
+        .onChange(of: locationQuery) { _, newValue in
+            scheduleLocationSearch(for: newValue)
+            if selectedLocation?.displayAddress != newValue {
+                selectedLocation = nil
+            }
         }
         .alert("说明", isPresented: $showLocationHelp) {
             Button("知道了", role: .cancel) {}
@@ -164,7 +159,7 @@ struct CreateProfileSheet: View {
         case 1:
             return true
         default:
-            return true
+            return selectedLocation != nil
         }
     }
 
@@ -187,15 +182,22 @@ struct CreateProfileSheet: View {
             step = 2
         default:
             guard let birthInfo,
+                  let selectedLocation,
                   let trueSolarComponents else {
                 errorMessage = "无法计算真太阳时，请确认出生时间与地点。"
                 return
             }
             let location = BirthLocation(
-                province: selectedProvince.name,
-                city: selectedCity.name,
-                district: selectedDistrict.name,
-                longitude: selectedDistrict.longitude
+                province: selectedLocation.province,
+                city: selectedLocation.city,
+                district: selectedLocation.district,
+                detailAddress: selectedLocation.detailAddress,
+                latitude: selectedLocation.latitude,
+                longitude: selectedLocation.longitude,
+                timezoneID: selectedLocation.timezoneID,
+                utcOffsetMinutesAtBirth: selectedLocation.utcOffsetMinutes,
+                placeSource: selectedLocation.source,
+                locationAdcode: selectedLocation.adcode
             )
             let profile = UserProfile(
                 id: existingProfile?.id ?? UUID(),
@@ -208,6 +210,36 @@ struct CreateProfileSheet: View {
             )
             onCreate(profile)
             dismiss()
+        }
+    }
+
+    private func scheduleLocationSearch(for keyword: String) {
+        let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count < 2 {
+            locationSuggestions = []
+            isSearchingLocation = false
+            return
+        }
+        isSearchingLocation = true
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                let items = try await locationSearchClient.search(keyword: trimmed, limit: 12)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard locationQuery.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed else { return }
+                    locationSuggestions = items
+                    isSearchingLocation = false
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard locationQuery.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed else { return }
+                    locationSuggestions = []
+                    isSearchingLocation = false
+                }
+            }
         }
     }
 }
@@ -350,25 +382,25 @@ private struct BirthTimeStep: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .onChange(of: input.calendarType) { _ in
+        .onChange(of: input.calendarType) {
             if !showLeapMonthToggle {
                 input.isLeapMonth = false
             }
             clampDayIfNeeded()
         }
-        .onChange(of: input.year) { _ in
+        .onChange(of: input.year) {
             if !showLeapMonthToggle {
                 input.isLeapMonth = false
             }
             clampDayIfNeeded()
         }
-        .onChange(of: input.month) { _ in
+        .onChange(of: input.month) {
             clampDayIfNeeded()
         }
-        .onChange(of: input.isLeapMonth) { _ in
+        .onChange(of: input.isLeapMonth) {
             clampDayIfNeeded()
         }
-        .onChange(of: input.day) { _ in
+        .onChange(of: input.day) {
             if let validationError = validate(input) {
                 errorMessage = validationError
             } else {
@@ -386,28 +418,13 @@ private struct BirthTimeStep: View {
 }
 
 private struct BirthLocationStep: View {
-    let provinces: [ProvinceOption]
-    @Binding var selection: LocationSelection
+    @Binding var query: String
+    let suggestions: [GeoLocationSuggestion]
+    @Binding var selectedLocation: GeoLocationSuggestion?
+    let isSearching: Bool
     @Binding var showHelp: Bool
-    let selectedDistrict: DistrictOption
     let longitudeOffsetMinutes: Int
     let trueSolarComponents: DateComponents?
-
-    private var provinceIndex: Int {
-        min(selection.provinceIndex, provinces.count - 1)
-    }
-
-    private var cities: [CityOption] {
-        provinces[provinceIndex].cities
-    }
-
-    private var cityIndex: Int {
-        min(selection.cityIndex, cities.count - 1)
-    }
-
-    private var districts: [DistrictOption] {
-        cities[cityIndex].districts
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -424,35 +441,66 @@ private struct BirthLocationStep: View {
                 .buttonStyle(.plain)
             }
 
-            HStack(spacing: 8) {
-                Picker("省", selection: $selection.provinceIndex) {
-                    ForEach(provinces.indices, id: \.self) { index in
-                        Text(provinces[index].name).tag(index)
-                    }
-                }
-                .pickerStyle(.wheel)
-                .frame(maxWidth: .infinity)
+            TextField("输入省市区或详细地址，例如：上海徐汇区", text: $query)
+                .textFieldStyle(.roundedBorder)
 
-                Picker("市", selection: $selection.cityIndex) {
-                    ForEach(cities.indices, id: \.self) { index in
-                        Text(cities[index].name).tag(index)
-                    }
+            if isSearching {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("正在搜索地点...")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
-                .pickerStyle(.wheel)
-                .frame(maxWidth: .infinity)
-
-                Picker("区/县", selection: $selection.districtIndex) {
-                    ForEach(districts.indices, id: \.self) { index in
-                        Text(districts[index].name).tag(index)
-                    }
-                }
-                .pickerStyle(.wheel)
-                .frame(maxWidth: .infinity)
             }
 
-            Text("经度：\(String(format: "%.2f", selectedDistrict.longitude)) 度")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            if !suggestions.isEmpty {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(suggestions) { item in
+                            Button {
+                                selectedLocation = item
+                                query = item.displayAddress
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.name.isEmpty ? item.displayAddress : item.name)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.primary)
+                                    Text(item.displayAddress)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(selectedLocation?.id == item.id ? Color.purple.opacity(0.12) : Color(.secondarySystemBackground))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 220)
+            }
+
+            if let selectedLocation {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("已选择：\(selectedLocation.displayAddress)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("经度：\(String(format: "%.4f", selectedLocation.longitude))，纬度：\(String(format: "%.4f", selectedLocation.latitude))")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("时区：\(selectedLocation.timezoneID)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("请选择一个可匹配的地点。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Text("与东经 120 度差值：\(longitudeOffsetMinutes >= 0 ? "+" : "")\(longitudeOffsetMinutes) 分钟")
                 .font(.footnote)
                 .foregroundStyle(.secondary)

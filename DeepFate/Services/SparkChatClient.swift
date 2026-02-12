@@ -2,14 +2,24 @@ import Foundation
 
 struct SparkBackendConfig {
     private let defaultURL: String = "http://192.168.0.103:8000"
+    private var legacyMap: [String: String] {
+        [
+            "http://10.10.13.2:8000": defaultURL,
+            "http://192.168.0.101:8000": defaultURL
+        ]
+    }
     var baseURL: String {
         let stored = UserDefaults.standard.string(forKey: "backendBaseURL") ?? ""
         let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
-        if shouldMigrateStoredURL(trimmed) {
+        if let migrated = legacyMap[trimmed] {
+            UserDefaults.standard.set(migrated, forKey: "backendBaseURL")
+            return migrated
+        }
+        if trimmed.isEmpty {
             UserDefaults.standard.set(defaultURL, forKey: "backendBaseURL")
             return defaultURL
         }
-        return trimmed.isEmpty ? defaultURL : trimmed
+        return trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
     }
     let chatPath: String = "/spark/chat"
     let streamPath: String = "/spark/chat/stream"
@@ -17,35 +27,6 @@ struct SparkBackendConfig {
 
     var isValid: Bool {
         !baseURL.isEmpty
-    }
-
-    private func shouldMigrateStoredURL(_ storedURL: String) -> Bool {
-        guard !storedURL.isEmpty else { return false }
-        guard let stored = URL(string: storedURL),
-              let storedHost = stored.host,
-              let defaults = URL(string: defaultURL),
-              let defaultHost = defaults.host else { return false }
-        // Keep user-defined non-IP endpoints (e.g. domain/ngrok) unchanged.
-        guard isIPv4(storedHost), isPrivateIPv4(storedHost) else { return false }
-        return storedHost != defaultHost
-    }
-
-    private func isIPv4(_ host: String) -> Bool {
-        let parts = host.split(separator: ".")
-        guard parts.count == 4 else { return false }
-        return parts.allSatisfy { part in
-            guard let value = Int(part), value >= 0, value <= 255 else { return false }
-            return true
-        }
-    }
-
-    private func isPrivateIPv4(_ host: String) -> Bool {
-        let parts = host.split(separator: ".").compactMap { Int($0) }
-        guard parts.count == 4 else { return false }
-        if parts[0] == 10 { return true }
-        if parts[0] == 172, (16...31).contains(parts[1]) { return true }
-        if parts[0] == 192, parts[1] == 168 { return true }
-        return false
     }
 }
 

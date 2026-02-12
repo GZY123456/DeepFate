@@ -9,6 +9,9 @@ import time
 from datetime import datetime
 from time import mktime
 from urllib.parse import urlencode, urlparse
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 from wsgiref.handlers import format_date_time
 from flask import Flask, Response, jsonify, request, stream_with_context
 import websocket
@@ -49,6 +52,10 @@ SPARK_URL = os.getenv("SPARK_URL", "wss://spark-api.xf-yun.com/v1/x1")
 SPARK_DOMAIN = os.getenv("SPARK_DOMAIN", "spark-x")
 SPARK_SYSTEM_PROMPT = os.getenv("SPARK_SYSTEM_PROMPT", SPARK_SYSTEM_PROMPT)
 SPARK_DEBUG_RESPONSE = os.getenv("SPARK_DEBUG_RESPONSE", "0") == "1"
+AMAP_API_KEY = os.getenv("AMAP_API_KEY", "dcac0625f0725b9683338027fe890aa4")
+AMAP_SECURITY_KEY = os.getenv("AMAP_SECURITY_KEY", "")
+AMAP_PLACE_TEXT_URL = "https://restapi.amap.com/v5/place/text"
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
 
 app = Flask(__name__)
@@ -120,6 +127,16 @@ def init_db():
                 );
                 """
             )
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS location_province text;")
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS location_city text;")
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS location_district text;")
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS location_detail text;")
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS latitude double precision;")
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS longitude double precision;")
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS timezone_id text;")
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS utc_offset_minutes integer;")
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS place_source text;")
+            cur.execute("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS location_adcode text;")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS draws (
@@ -208,6 +225,368 @@ def locations():
         return jsonify({"error": "locations data not found"}), 404
 
 
+def _clean_text(value):
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _safe_float(value):
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_timezone_id(province="", city="", district="", full_text=""):
+    text = f"{_clean_text(province)}{_clean_text(city)}{_clean_text(district)}{_clean_text(full_text)}"
+    if "香港" in text:
+        return "Asia/Hong_Kong"
+    if "澳门" in text:
+        return "Asia/Macau"
+    if "台湾" in text or "台北" in text or "高雄" in text:
+        return "Asia/Taipei"
+    return "Asia/Shanghai"
+
+
+def compute_utc_offset_minutes(timezone_id, solar_text=None):
+    tz = _clean_text(timezone_id)
+    if not tz:
+        return None
+    try:
+        if solar_text:
+            dt = datetime.strptime(str(solar_text), "%Y-%m-%d %H:%M")
+        else:
+            dt = datetime.now()
+        aware = dt.replace(tzinfo=ZoneInfo(tz))
+        offset = aware.utcoffset()
+        if offset is None:
+            return None
+        return int(offset.total_seconds() // 60)
+    except Exception:
+        return None
+
+
+def build_location_text(province="", city="", district="", detail=""):
+    parts = [_clean_text(province), _clean_text(city), _clean_text(district)]
+    compact = "".join([part for part in parts if part])
+    extra = _clean_text(detail)
+    if compact and extra:
+        return f"{compact} {extra}"
+    return compact or extra
+
+
+def amap_search_places(keyword, city="", limit=20):
+    if not AMAP_API_KEY:
+        raise RuntimeError("AMAP_API_KEY 未配置")
+    q = _clean_text(keyword)
+    if not q:
+        return []
+    page_size = max(1, min(int(limit), 20))
+    params = {
+        "key": AMAP_API_KEY,
+        "keywords": q,
+        "region": "全国",
+        "city": _clean_text(city),
+        "city_limit": "false",
+        "show_fields": "business",
+        "page_size": page_size,
+        "page_num": 1,
+    }
+    payload = call_amap_place_api(params)
+    if payload.get("status") != "1":
+        raise RuntimeError(payload.get("info", "高德地点检索失败"))
+    items = []
+    for poi in payload.get("pois") or []:
+        location = _clean_text(poi.get("location"))
+        if "," not in location:
+            continue
+        lng_str, lat_str = location.split(",", 1)
+        longitude = _safe_float(lng_str)
+        latitude = _safe_float(lat_str)
+        if longitude is None or latitude is None:
+            continue
+        province = _clean_text(poi.get("pname"))
+        city_name = poi.get("cityname")
+        if isinstance(city_name, list):
+            city_name = city_name[0] if city_name else ""
+        city_name = _clean_text(city_name)
+        district = _clean_text(poi.get("adname"))
+        detail = _clean_text(poi.get("address"))
+        poi_name = _clean_text(poi.get("name"))
+        full_address = build_location_text(province, city_name, district, detail) or poi_name
+        timezone_id = resolve_timezone_id(province, city_name, district, full_address)
+        items.append(
+            {
+                "name": poi_name,
+                "province": province,
+                "city": city_name,
+                "district": district,
+                "detailAddress": detail,
+                "fullAddress": full_address,
+                "longitude": longitude,
+                "latitude": latitude,
+                "adcode": _clean_text(poi.get("adcode")),
+                "timezoneId": timezone_id,
+                "utcOffsetMinutes": compute_utc_offset_minutes(timezone_id),
+                "source": "amap",
+            }
+        )
+    return items
+
+
+def call_amap_place_api(params):
+    # 高德 Web 服务可配置“数字签名校验”，开启后必须带 sig。
+    # 同时做兜底：签名失败时再尝试无 sig，兼容未开启校验的 key。
+    variants = [True, False] if AMAP_SECURITY_KEY else [False]
+    last_payload = None
+    for use_sig in variants:
+        query_params = dict(params)
+        if use_sig:
+            query_params["sig"] = build_amap_sig(query_params)
+        query = urlencode(query_params, quote_via=quote)
+        url = f"{AMAP_PLACE_TEXT_URL}?{query}"
+        with urlopen(url, timeout=8) as resp:
+            raw = resp.read().decode("utf-8")
+        payload = json.loads(raw)
+        last_payload = payload
+        if payload.get("status") == "1":
+            return payload
+    return last_payload or {}
+
+
+def build_amap_sig(params):
+    pairs = []
+    for key in sorted(params.keys()):
+        value = params.get(key)
+        if value in (None, ""):
+            continue
+        pairs.append(f"{key}={value}")
+    raw = "&".join(pairs) + AMAP_SECURITY_KEY
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def nominatim_search_places(keyword, limit=20):
+    q = _clean_text(keyword)
+    if not q:
+        return []
+    params = {
+        "q": q,
+        "format": "jsonv2",
+        "addressdetails": 1,
+        "limit": max(1, min(int(limit), 20)),
+    }
+    req = Request(
+        f"{NOMINATIM_URL}?{urlencode(params, quote_via=quote)}",
+        headers={"User-Agent": "DeepFate/1.0"},
+    )
+    with urlopen(req, timeout=8) as resp:
+        raw = resp.read().decode("utf-8")
+    payload = json.loads(raw)
+    items = []
+    for entry in payload if isinstance(payload, list) else []:
+        longitude = _safe_float(entry.get("lon"))
+        latitude = _safe_float(entry.get("lat"))
+        if longitude is None or latitude is None:
+            continue
+        address = entry.get("address") or {}
+        province = _clean_text(address.get("state") or address.get("province"))
+        city = _clean_text(address.get("city") or address.get("town") or address.get("county"))
+        district = _clean_text(address.get("county") or address.get("suburb"))
+        detail = _clean_text(address.get("road"))
+        full_address = _clean_text(entry.get("display_name"))
+        timezone_id = resolve_timezone_id(province, city, district, full_address)
+        items.append(
+            {
+                "name": _clean_text(address.get("city_district") or address.get("suburb") or city),
+                "province": province,
+                "city": city,
+                "district": district,
+                "detailAddress": detail,
+                "fullAddress": full_address,
+                "longitude": longitude,
+                "latitude": latitude,
+                "adcode": "",
+                "timezoneId": timezone_id,
+                "utcOffsetMinutes": compute_utc_offset_minutes(timezone_id),
+                "source": "nominatim",
+            }
+        )
+    return items
+
+
+def search_places(keyword, city="", limit=20):
+    try:
+        items = amap_search_places(keyword, city=city, limit=limit)
+        if items:
+            return items
+    except Exception as exc:
+        print(f"[geo] amap search failed: {exc}")
+    try:
+        return nominatim_search_places(keyword, limit=limit)
+    except Exception as exc:
+        print(f"[geo] fallback search failed: {exc}")
+        return []
+
+
+def enrich_location_payload(payload):
+    province = _clean_text(payload.get("locationProvince"))
+    city = _clean_text(payload.get("locationCity"))
+    district = _clean_text(payload.get("locationDistrict"))
+    detail = _clean_text(payload.get("locationDetail"))
+    longitude = _safe_float(payload.get("longitude"))
+    latitude = _safe_float(payload.get("latitude"))
+    timezone_id = _clean_text(payload.get("timezoneId"))
+    utc_offset = payload.get("utcOffsetMinutes")
+    if utc_offset in ("", None):
+        utc_offset = None
+    else:
+        try:
+            utc_offset = int(utc_offset)
+        except (TypeError, ValueError):
+            utc_offset = None
+    source = _clean_text(payload.get("placeSource")) or "manual"
+    adcode = _clean_text(payload.get("locationAdcode"))
+    location_text = _clean_text(payload.get("location"))
+    solar_text = _clean_text(payload.get("solar"))
+
+    if (not province or longitude is None or latitude is None) and location_text:
+        candidates = search_places(location_text, limit=1)
+        if candidates:
+            first = candidates[0]
+            province = province or _clean_text(first.get("province"))
+            city = city or _clean_text(first.get("city"))
+            district = district or _clean_text(first.get("district"))
+            detail = detail or _clean_text(first.get("detailAddress"))
+            longitude = longitude if longitude is not None else _safe_float(first.get("longitude"))
+            latitude = latitude if latitude is not None else _safe_float(first.get("latitude"))
+            timezone_id = timezone_id or _clean_text(first.get("timezoneId"))
+            adcode = adcode or _clean_text(first.get("adcode"))
+            source = _clean_text(first.get("source")) or source
+
+    if not location_text:
+        location_text = build_location_text(province, city, district, detail)
+
+    if not timezone_id:
+        timezone_id = resolve_timezone_id(province, city, district, location_text)
+    if utc_offset is None:
+        utc_offset = compute_utc_offset_minutes(timezone_id, solar_text)
+
+    return {
+        "location": location_text,
+        "location_province": province,
+        "location_city": city,
+        "location_district": district,
+        "location_detail": detail,
+        "longitude": longitude,
+        "latitude": latitude,
+        "timezone_id": timezone_id,
+        "utc_offset_minutes": utc_offset,
+        "place_source": source,
+        "location_adcode": adcode,
+    }
+
+
+def backfill_profile_locations():
+    if not AMAP_API_KEY:
+        print("[profiles] skip location backfill: AMAP_API_KEY missing")
+        return
+    try:
+        with get_db_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT id, location, solar, location_province, location_city, location_district,
+                           location_detail, latitude, longitude, timezone_id, utc_offset_minutes,
+                           place_source, location_adcode
+                    FROM profiles
+                    WHERE (location_province IS NULL OR location_province = '')
+                       OR latitude IS NULL
+                       OR longitude IS NULL
+                       OR timezone_id IS NULL
+                    ORDER BY created_at DESC
+                    LIMIT 200
+                    """
+                )
+                rows = cur.fetchall()
+                updated = 0
+                for row in rows:
+                    enriched = enrich_location_payload(
+                        {
+                            "location": row.get("location", ""),
+                            "solar": row.get("solar", ""),
+                            "locationProvince": row.get("location_province", ""),
+                            "locationCity": row.get("location_city", ""),
+                            "locationDistrict": row.get("location_district", ""),
+                            "locationDetail": row.get("location_detail", ""),
+                            "latitude": row.get("latitude"),
+                            "longitude": row.get("longitude"),
+                            "timezoneId": row.get("timezone_id", ""),
+                            "utcOffsetMinutes": row.get("utc_offset_minutes"),
+                            "placeSource": row.get("place_source", ""),
+                            "locationAdcode": row.get("location_adcode", ""),
+                        }
+                    )
+                    if not enriched.get("location") and enriched.get("longitude") is None:
+                        continue
+                    cur.execute(
+                        """
+                        UPDATE profiles
+                        SET location = COALESCE(NULLIF(location, ''), %s),
+                            location_province = COALESCE(NULLIF(location_province, ''), %s),
+                            location_city = COALESCE(NULLIF(location_city, ''), %s),
+                            location_district = COALESCE(NULLIF(location_district, ''), %s),
+                            location_detail = COALESCE(NULLIF(location_detail, ''), %s),
+                            latitude = COALESCE(latitude, %s),
+                            longitude = COALESCE(longitude, %s),
+                            timezone_id = COALESCE(NULLIF(timezone_id, ''), %s),
+                            utc_offset_minutes = COALESCE(utc_offset_minutes, %s),
+                            place_source = COALESCE(NULLIF(place_source, ''), %s),
+                            location_adcode = COALESCE(NULLIF(location_adcode, ''), %s),
+                            updated_at = now()
+                        WHERE id = %s
+                        """,
+                        (
+                            enriched["location"],
+                            enriched["location_province"],
+                            enriched["location_city"],
+                            enriched["location_district"],
+                            enriched["location_detail"],
+                            enriched["latitude"],
+                            enriched["longitude"],
+                            enriched["timezone_id"],
+                            enriched["utc_offset_minutes"],
+                            enriched["place_source"],
+                            enriched["location_adcode"],
+                            str(row["id"]),
+                        ),
+                    )
+                    updated += 1
+        print(f"[profiles] location backfill finished, updated={updated}")
+    except Exception as exc:
+        print(f"[profiles] location backfill failed: {exc}")
+
+
+@app.get("/geo/search")
+def geo_search():
+    keyword = request.args.get("q") or request.args.get("keyword") or ""
+    city = request.args.get("city", "")
+    try:
+        limit = int(request.args.get("limit", "20"))
+    except ValueError:
+        limit = 20
+    limit = max(1, min(limit, 20))
+    keyword = _clean_text(keyword)
+    if not keyword:
+        return jsonify({"error": "q required"}), 400
+    items = search_places(keyword, city=city, limit=limit)
+    if items:
+        return jsonify({"items": items})
+    return jsonify({"items": [], "error": "no location results"}), 200
+
+
 def build_spark_payload(messages):
     return {
         "header": {
@@ -243,16 +622,23 @@ def build_profile_prompt(profile):
     name = profile.get("name", "")
     gender = profile.get("gender", "")
     location = profile.get("location", "")
+    location_detail = profile.get("locationDetail", "")
     solar = profile.get("solar", "")
     lunar = profile.get("lunar", "")
     true_solar = profile.get("trueSolar", "")
-    if not any([name, gender, location, solar, lunar, true_solar]):
+    longitude = profile.get("longitude", "")
+    latitude = profile.get("latitude", "")
+    if not any([name, gender, location, location_detail, solar, lunar, true_solar]):
         return ""
+    location_line = location
+    if location_detail and location_detail not in location:
+        location_line = f"{location} {location_detail}".strip()
     return (
         "用户档案信息（结构化）：\n"
         f"- 姓名：{name}\n"
         f"- 性别：{gender}\n"
-        f"- 出生地：{location}\n"
+        f"- 出生地：{location_line}\n"
+        f"- 坐标：经度{longitude}，纬度{latitude}\n"
         f"- 出生时间（阳历）：{solar}\n"
         f"- 出生时间（阴历）：{lunar}\n"
         f"- 真太阳时：{true_solar}\n"
@@ -327,7 +713,9 @@ def fetch_profile(profile_id):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT id, name, gender, location, solar, lunar, true_solar
+                SELECT id, name, gender, location, solar, lunar, true_solar,
+                       location_province, location_city, location_district, location_detail,
+                       latitude, longitude, timezone_id, utc_offset_minutes, place_source, location_adcode
                 FROM profiles
                 WHERE id = %s
                 """,
@@ -344,6 +732,16 @@ def fetch_profile(profile_id):
                 "solar": row.get("solar", ""),
                 "lunar": row.get("lunar", ""),
                 "trueSolar": row.get("true_solar", ""),
+                "locationProvince": row.get("location_province", ""),
+                "locationCity": row.get("location_city", ""),
+                "locationDistrict": row.get("location_district", ""),
+                "locationDetail": row.get("location_detail", ""),
+                "latitude": row.get("latitude"),
+                "longitude": row.get("longitude"),
+                "timezoneId": row.get("timezone_id", ""),
+                "utcOffsetMinutes": row.get("utc_offset_minutes"),
+                "placeSource": row.get("place_source", ""),
+                "locationAdcode": row.get("location_adcode", ""),
             }
 
 
@@ -392,12 +790,17 @@ def upsert_profile():
     user_id = payload.get("userId")
     if not user_id:
         return jsonify({"error": "userId required"}), 400
+    enriched_location = enrich_location_payload(payload)
     with get_db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO profiles (id, user_id, name, gender, location, solar, lunar, true_solar)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO profiles (
+                    id, user_id, name, gender, location, solar, lunar, true_solar,
+                    location_province, location_city, location_district, location_detail,
+                    latitude, longitude, timezone_id, utc_offset_minutes, place_source, location_adcode
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     user_id = EXCLUDED.user_id,
                     name = EXCLUDED.name,
@@ -406,6 +809,16 @@ def upsert_profile():
                     solar = EXCLUDED.solar,
                     lunar = EXCLUDED.lunar,
                     true_solar = EXCLUDED.true_solar,
+                    location_province = EXCLUDED.location_province,
+                    location_city = EXCLUDED.location_city,
+                    location_district = EXCLUDED.location_district,
+                    location_detail = EXCLUDED.location_detail,
+                    latitude = EXCLUDED.latitude,
+                    longitude = EXCLUDED.longitude,
+                    timezone_id = EXCLUDED.timezone_id,
+                    utc_offset_minutes = EXCLUDED.utc_offset_minutes,
+                    place_source = EXCLUDED.place_source,
+                    location_adcode = EXCLUDED.location_adcode,
                     updated_at = now()
                 """,
                 (
@@ -413,10 +826,20 @@ def upsert_profile():
                     user_id,
                     payload.get("name", ""),
                     payload.get("gender", ""),
-                    payload.get("location", ""),
+                    enriched_location.get("location", ""),
                     payload.get("solar", ""),
                     payload.get("lunar", ""),
                     payload.get("trueSolar", ""),
+                    enriched_location.get("location_province", ""),
+                    enriched_location.get("location_city", ""),
+                    enriched_location.get("location_district", ""),
+                    enriched_location.get("location_detail", ""),
+                    enriched_location.get("latitude"),
+                    enriched_location.get("longitude"),
+                    enriched_location.get("timezone_id", ""),
+                    enriched_location.get("utc_offset_minutes"),
+                    enriched_location.get("place_source", ""),
+                    enriched_location.get("location_adcode", ""),
                 ),
             )
     print(f"[profiles] upsert id={profile_id}")
@@ -432,7 +855,9 @@ def list_profiles():
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT id, name, gender, location, solar, lunar, true_solar, created_at
+                SELECT id, name, gender, location, solar, lunar, true_solar, created_at,
+                       location_province, location_city, location_district, location_detail,
+                       latitude, longitude, timezone_id, utc_offset_minutes, place_source, location_adcode
                 FROM profiles
                 WHERE user_id = %s
                 ORDER BY created_at DESC
@@ -449,6 +874,16 @@ def list_profiles():
             "solar": row.get("solar", ""),
             "lunar": row.get("lunar", ""),
             "trueSolar": row.get("true_solar", ""),
+            "locationProvince": row.get("location_province", ""),
+            "locationCity": row.get("location_city", ""),
+            "locationDistrict": row.get("location_district", ""),
+            "locationDetail": row.get("location_detail", ""),
+            "latitude": row.get("latitude"),
+            "longitude": row.get("longitude"),
+            "timezoneId": row.get("timezone_id", ""),
+            "utcOffsetMinutes": row.get("utc_offset_minutes"),
+            "placeSource": row.get("place_source", ""),
+            "locationAdcode": row.get("location_adcode", ""),
         }
         for row in rows
     ]
@@ -1198,5 +1633,5 @@ def chat_title():
 
 
 if __name__ == "__main__":
-    init_db()
+    backfill_profile_locations()
     app.run(host="0.0.0.0", port=8000, debug=False)

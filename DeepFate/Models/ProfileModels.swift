@@ -47,7 +47,79 @@ struct BirthLocation: Equatable, Codable {
     let province: String
     let city: String
     let district: String
+    let detailAddress: String
+    let latitude: Double
     let longitude: Double
+    let timezoneID: String
+    let utcOffsetMinutesAtBirth: Int?
+    let placeSource: String
+    let locationAdcode: String
+
+    init(
+        province: String,
+        city: String,
+        district: String,
+        detailAddress: String = "",
+        latitude: Double = 0,
+        longitude: Double,
+        timezoneID: String = "Asia/Shanghai",
+        utcOffsetMinutesAtBirth: Int? = nil,
+        placeSource: String = "manual",
+        locationAdcode: String = ""
+    ) {
+        self.province = province
+        self.city = city
+        self.district = district
+        self.detailAddress = detailAddress
+        self.latitude = latitude
+        self.longitude = longitude
+        self.timezoneID = timezoneID
+        self.utcOffsetMinutesAtBirth = utcOffsetMinutesAtBirth
+        self.placeSource = placeSource
+        self.locationAdcode = locationAdcode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case province
+        case city
+        case district
+        case detailAddress
+        case latitude
+        case longitude
+        case timezoneID
+        case utcOffsetMinutesAtBirth
+        case placeSource
+        case locationAdcode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        province = try container.decodeIfPresent(String.self, forKey: .province) ?? ""
+        city = try container.decodeIfPresent(String.self, forKey: .city) ?? ""
+        district = try container.decodeIfPresent(String.self, forKey: .district) ?? ""
+        detailAddress = try container.decodeIfPresent(String.self, forKey: .detailAddress) ?? ""
+        latitude = try container.decodeIfPresent(Double.self, forKey: .latitude) ?? 0
+        longitude = try container.decodeIfPresent(Double.self, forKey: .longitude) ?? 120
+        timezoneID = try container.decodeIfPresent(String.self, forKey: .timezoneID) ?? "Asia/Shanghai"
+        utcOffsetMinutesAtBirth = try container.decodeIfPresent(Int.self, forKey: .utcOffsetMinutesAtBirth)
+        placeSource = try container.decodeIfPresent(String.self, forKey: .placeSource) ?? "manual"
+        locationAdcode = try container.decodeIfPresent(String.self, forKey: .locationAdcode) ?? ""
+    }
+
+    var compactDisplayText: String {
+        [province, city, district].filter { !$0.isEmpty }.joined()
+    }
+
+    var fullDisplayText: String {
+        let compact = compactDisplayText
+        if detailAddress.isEmpty {
+            return compact
+        }
+        if compact.isEmpty {
+            return detailAddress
+        }
+        return "\(compact) \(detailAddress)"
+    }
 }
 
 struct UserProfile: Identifiable, Equatable, Codable {

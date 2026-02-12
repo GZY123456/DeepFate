@@ -83,10 +83,27 @@ struct FortuneChartView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if let err = errorMessage {
-                        Text(err)
-                            .font(.subheadline)
-                            .foregroundStyle(.red)
-                            .padding()
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(err)
+                                .font(.subheadline)
+                                .foregroundStyle(.red)
+                            Button {
+                                loadChart(for: profile)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.clockwise")
+                                    Text("点击重试")
+                                }
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.purple.opacity(0.12))
+                                .foregroundStyle(.purple)
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding()
                     }
                     if isLoading {
                         ProgressView("正在排盘…")
@@ -203,6 +220,7 @@ struct FortuneChartView: View {
         isLoading = true
         errorMessage = nil
         baziModel = nil
+        chartText = ""
         loadTask = Task {
             do {
                 let result = try await chartClient.fetchChart(
@@ -322,7 +340,7 @@ private struct BaziChartGridView: View {
             rowColumnList(title: "大运", items: bazi.daYun ?? [])
                 .background(rowBgA)
             divider
-            rowColumnList(title: "流年", items: bazi.liuNian ?? [])
+            rowColumnList(title: "流年", items: bazi.liuNian ?? [], columns: 4, splitDaYunLine: false)
                 .background(rowBgB)
             if let rel = bazi.ganRelationText, !rel.isEmpty {
                 divider
@@ -494,10 +512,15 @@ private struct BaziChartGridView: View {
         }
     }
 
-    private func rowColumnList(title: String, items: [String]) -> some View {
+    private func rowColumnList(
+        title: String,
+        items: [String],
+        columns: Int = 2,
+        splitDaYunLine: Bool = true
+    ) -> some View {
         let showItems = items.isEmpty ? ["—"] : items
-        let rows = stride(from: 0, to: showItems.count, by: 2).map { index in
-            Array(showItems[index..<min(index + 2, showItems.count)])
+        let rows = stride(from: 0, to: showItems.count, by: columns).map { index in
+            Array(showItems[index..<min(index + columns, showItems.count)])
         }
         return HStack(alignment: .top, spacing: 0) {
             Text(title)
@@ -507,19 +530,15 @@ private struct BaziChartGridView: View {
                 .padding(.vertical, 10)
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    HStack(alignment: .top, spacing: 12) {
-                        let left = row.first ?? "—"
-                        Text(formatDaYunItem(left))
-                            .font(.caption)
-                            .foregroundStyle(left == "—" ? textPlaceholder : textPrimary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                        let right = row.count > 1 ? row[1] : "—"
-                        Text(formatDaYunItem(right))
-                            .font(.caption)
-                            .foregroundStyle(right == "—" ? textPlaceholder : textPrimary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .top, spacing: 8) {
+                        ForEach(0..<columns, id: \.self) { columnIndex in
+                            let value = columnIndex < row.count ? row[columnIndex] : "—"
+                            Text(splitDaYunLine ? formatDaYunItem(value) : value)
+                                .font(columns >= 4 ? .caption2 : .caption)
+                                .foregroundStyle(value == "—" ? textPlaceholder : textPrimary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }

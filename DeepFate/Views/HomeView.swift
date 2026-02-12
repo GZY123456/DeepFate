@@ -54,7 +54,7 @@ struct HomeView: View {
         .onAppear {
             Task { await refreshTodayDraw() }
         }
-        .onChange(of: profileStore.activeProfileID) { _ in
+        .onChange(of: profileStore.activeProfileID) {
             Task { await refreshTodayDraw() }
         }
     }

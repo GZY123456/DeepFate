@@ -92,7 +92,8 @@ struct ArchiveView: View {
                 profile.name,
                 profile.location.province,
                 profile.location.city,
-                profile.location.district
+                profile.location.district,
+                profile.location.detailAddress
             ].joined(separator: " ")
             return haystack.localizedCaseInsensitiveContains(keyword)
         }
@@ -140,7 +141,7 @@ private struct ArchiveCard: View {
             Text("\(profile.gender.rawValue) · \(formatDateComponents(profile.birthInfo.solarComponents))")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("出生地：\(profile.location.province) \(profile.location.city) \(profile.location.district)")
+            Text("出生地：\(profile.location.fullDisplayText)")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             Text("真太阳时：\(formatDateComponents(profile.trueSolarComponents))")

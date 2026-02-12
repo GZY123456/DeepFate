@@ -235,7 +235,7 @@ final class AuthViewModel: ObservableObject {
         guard let solarComponents = parseComponents(record.solar) else { return nil }
         let lunarComponents = parseComponents(record.lunar) ?? solarComponents
         let birthInfo = BirthInfo(inputType: .solar, solarComponents: solarComponents, lunarComponents: lunarComponents)
-        let location = parseBirthLocation(record.location, longitude: record.longitude ?? 120.0)
+        let location = parseBirthLocation(record)
         let trueSolar = parseComponents(record.trueSolar) ?? computeTrueSolarComponents(from: solarComponents, longitude: location.longitude) ?? solarComponents
         let createdAt = record.createdAt ?? Date()
         return UserProfile(
@@ -259,20 +259,63 @@ final class AuthViewModel: ObservableObject {
             .dateComponents([.year, .month, .day, .hour, .minute], from: date)
     }
 
-    private func parseBirthLocation(_ text: String?, longitude: Double) -> BirthLocation {
-        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    private func parseBirthLocation(_ record: BackendProfile) -> BirthLocation {
+        let province = (record.locationProvince ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let city = (record.locationCity ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let district = (record.locationDistrict ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = (record.locationDetail ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let longitude = record.longitude ?? 120.0
+        let latitude = record.latitude ?? 0
+        let timezoneID = (record.timezoneId ?? "").isEmpty ? "Asia/Shanghai" : (record.timezoneId ?? "Asia/Shanghai")
+        let placeSource = (record.placeSource ?? "").isEmpty ? "manual" : (record.placeSource ?? "manual")
+
+        if !province.isEmpty || !city.isEmpty || !district.isEmpty || !detail.isEmpty {
+            return BirthLocation(
+                province: province,
+                city: city,
+                district: district,
+                detailAddress: detail,
+                latitude: latitude,
+                longitude: longitude,
+                timezoneID: timezoneID,
+                utcOffsetMinutesAtBirth: record.utcOffsetMinutes,
+                placeSource: placeSource,
+                locationAdcode: record.locationAdcode ?? ""
+            )
+        }
+
+        let trimmed = (record.location ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(whereSeparator: { $0 == " " || $0 == "/" || $0 == "-" || $0 == "·" })
             .map(String.init)
         if parts.isEmpty {
-            return BirthLocation(province: "未知", city: "", district: "", longitude: longitude)
+            return BirthLocation(
+                province: "未知",
+                city: "",
+                district: "",
+                detailAddress: "",
+                latitude: latitude,
+                longitude: longitude,
+                timezoneID: timezoneID,
+                utcOffsetMinutesAtBirth: record.utcOffsetMinutes,
+                placeSource: placeSource,
+                locationAdcode: record.locationAdcode ?? ""
+            )
         }
-        if parts.count == 1 {
-            return BirthLocation(province: parts[0], city: "", district: "", longitude: longitude)
-        }
-        if parts.count == 2 {
-            return BirthLocation(province: parts[0], city: parts[1], district: "", longitude: longitude)
-        }
-        return BirthLocation(province: parts[0], city: parts[1], district: parts[2], longitude: longitude)
+        let parsedProvince = parts[safe: 0] ?? ""
+        let parsedCity = parts[safe: 1] ?? ""
+        let parsedDistrict = parts[safe: 2] ?? ""
+        return BirthLocation(
+            province: parsedProvince,
+            city: parsedCity,
+            district: parsedDistrict,
+            detailAddress: "",
+            latitude: latitude,
+            longitude: longitude,
+            timezoneID: timezoneID,
+            utcOffsetMinutesAtBirth: record.utcOffsetMinutes,
+            placeSource: placeSource,
+            locationAdcode: record.locationAdcode ?? ""
+        )
     }
 
     private func mapGender(_ value: String?) -> Gender {
@@ -409,10 +452,19 @@ private struct BackendProfile: Decodable {
     let name: String
     let gender: String?
     let location: String?
+    let locationProvince: String?
+    let locationCity: String?
+    let locationDistrict: String?
+    let locationDetail: String?
+    let latitude: Double?
     let solar: String?
     let lunar: String?
     let trueSolar: String?
     let longitude: Double?
+    let timezoneId: String?
+    let utcOffsetMinutes: Int?
+    let placeSource: String?
+    let locationAdcode: String?
     let createdAt: Date?
 
     private enum CodingKeys: String, CodingKey {
@@ -420,10 +472,19 @@ private struct BackendProfile: Decodable {
         case name
         case gender
         case location
+        case locationProvince
+        case locationCity
+        case locationDistrict
+        case locationDetail
+        case latitude
         case solar
         case lunar
         case trueSolar
         case longitude
+        case timezoneId
+        case utcOffsetMinutes
+        case placeSource
+        case locationAdcode
         case createdAt = "created_at"
     }
 }

@@ -23,11 +23,14 @@ struct MainView: View {
     @State private var currentAssistantText: String = ""
     @StateObject private var speechManager = SpeechManager()
     @State private var showCopyToast = false
-    @State private var isAtBottom = true
     @State private var showScrollToBottom = false
     @State private var isUserDragging = false
+    @State private var chatRatio: CGFloat = 0.5
     @AppStorage("isLoggedIn") private var isLoggedIn = false
     private let chatClient = SparkChatClient()
+    private let deepBrown = Color(red: 0.3647, green: 0.2510, blue: 0.2157) // #5D4037
+    private let warmWhite = Color(red: 1.0, green: 0.9882, blue: 0.9608).opacity(0.85) // rgba(255,252,245,0.85)
+    private let coralAccent = Color(red: 1.0, green: 0.5412, blue: 0.3961) // #FF8A65
 
     private let suggestions = [
         "测算今日运势",
@@ -53,6 +56,12 @@ struct MainView: View {
         chats.first(where: { $0.id == currentChatId })?.title ?? "DeepFate"
     }
 
+    private var profileButtonTitle: String {
+        guard let profile = activeProfile else { return "档案" }
+        let trimmed = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "档案" : String(trimmed.prefix(4))
+    }
+
     var body: some View {
         if isLoggedIn {
             chatContent
@@ -62,56 +71,88 @@ struct MainView: View {
     }
 
     private var chatContent: some View {
-        chatMainColumn
-            .navigationTitle(currentChatTitle)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        withAnimation(.easeOut) {
-                            isDrawerOpen = true
-                            drawerDragOffset = 0
-                        }
-                    } label: {
-                        Image(systemName: "line.3.horizontal")
+        DraggableChatLayout(chatRatio: $chatRatio) {
+            // 上方：原背景插画
+            Image("ConsultBackground")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .clipped()
+                .ignoresSafeArea()
+        } chatContent: {
+            // 下方：聊天内容
+            chatMainColumn
+        }
+        .ignoresSafeArea(edges: .top)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    withAnimation(.easeOut) {
+                        isDrawerOpen = true
+                        drawerDragOffset = 0
                     }
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .foregroundStyle(coralAccent)
                 }
             }
-            .overlay(alignment: .top) { copyToastOverlay }
-            .overlay { drawerBackdropOverlay }
-            .overlay(alignment: .leading) { drawerPanelOverlay }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                isInputFocused = false
-                hideKeyboard()
+            ToolbarItem(placement: .principal) {
+                Text(currentChatTitle)
+                    .font(.system(size: 16, weight: .semibold))
+                    .lineLimit(1)
+                    .foregroundStyle(deepBrown)
             }
-            .sheet(isPresented: $showProfileSheet) { createProfileSheet }
-            .sheet(isPresented: $showProfilePicker) { profilePickerSheet }
-            .onAppear {
-                restoreLastChatIfNeeded()
-                handlePendingPromptIfNeeded()
-            }
-            .onChange(of: consultRouter.pendingChartPrompt) { newValue in
-                if let prompt = newValue, !prompt.isEmpty {
-                    sendUserMessage(prompt)
-                    consultRouter.clearPendingChart()
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showProfilePicker = true
+                } label: {
+                    HStack(spacing: 6) {
+                        ProfileAvatarView(name: activeProfile?.name ?? "档", size: 22)
+                        Text(profileButtonTitle)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                            .foregroundStyle(deepBrown)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(warmWhite)
+                    )
                 }
+                .buttonStyle(.plain)
             }
-            .gesture(drawerEdgeDragGesture)
+        }
+        .overlay(alignment: .top) { copyToastOverlay }
+        .overlay { drawerBackdropOverlay }
+        .overlay(alignment: .leading) { drawerPanelOverlay }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isInputFocused = false
+            hideKeyboard()
+        }
+        .sheet(isPresented: $showProfileSheet) { createProfileSheet }
+        .sheet(isPresented: $showProfilePicker) { profilePickerSheet }
+        .onAppear {
+            restoreLastChatIfNeeded()
+            handlePendingPromptIfNeeded()
+        }
+        .onChange(of: consultRouter.pendingChartPrompt) { _, newValue in
+            if let prompt = newValue, !prompt.isEmpty {
+                sendUserMessage(prompt)
+                consultRouter.clearPendingChart()
+            }
+        }
+        .gesture(drawerEdgeDragGesture)
     }
 
     private var chatMainColumn: some View {
         VStack(spacing: 0) {
-            ProfileSelectionBar(
-                profile: activeProfile,
-                onSelect: { showProfilePicker = true },
-                onCreate: { showProfileSheet = true }
-            )
-            .padding(.horizontal)
-            .padding(.top, 8)
-
             ScrollViewReader { proxy in
                 chatScrollContent(proxy: proxy)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             SuggestionChipsView(suggestions: suggestions, isDisabled: isSending) { suggestion in
                 guard !isSending else { return }
@@ -127,6 +168,7 @@ struct MainView: View {
 
             chatInputSection
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
     private func chatScrollContent(proxy: ScrollViewProxy) -> some View {
@@ -159,49 +201,33 @@ struct MainView: View {
                 Color.clear
                     .frame(height: 1)
                     .id("BOTTOM_ANCHOR")
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: BottomOffsetPreferenceKey.self,
-                                value: geo.frame(in: .named("ChatScroll")).minY
-                            )
-                        }
-                    )
             }
             .padding(.horizontal)
             .padding(.top, 12)
             .padding(.bottom, 140)
         }
-        .coordinateSpace(name: "ChatScroll")
         .scrollDismissesKeyboard(.interactively)
         .contentShape(Rectangle())
         .onTapGesture {
             isInputFocused = false
             hideKeyboard()
         }
-        .onChange(of: currentMessages.count) { _ in
-            if !isUserDragging && isAtBottom {
-                withAnimation(.easeOut) { proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom) }
-            } else if !isAtBottom {
-                showScrollToBottom = true
-            }
-        }
-        .onChange(of: currentAssistantText) { _ in
-            if !isUserDragging && isAtBottom {
+        .onChange(of: currentMessages.count) {
+            if !isUserDragging {
                 withAnimation(.easeOut) { proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom) }
             }
+            showScrollToBottom = isUserDragging
         }
-        .onPreferenceChange(BottomOffsetPreferenceKey.self) { minY in
-            let viewportHeight = UIScreen.main.bounds.height
-            let isNearBottom = minY <= viewportHeight - 20
-            isAtBottom = isNearBottom
-            if isNearBottom { showScrollToBottom = false }
+        .onChange(of: currentAssistantText) {
+            if !isUserDragging {
+                withAnimation(.easeOut) { proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom) }
+            }
         }
         .simultaneousGesture(
             DragGesture()
                 .onChanged { _ in
                     isUserDragging = true
-                    if !isAtBottom { showScrollToBottom = true }
+                    showScrollToBottom = true
                 }
                 .onEnded { _ in
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -220,9 +246,9 @@ struct MainView: View {
         } label: {
             Image(systemName: "arrow.down")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.white)
                 .frame(width: 36, height: 36)
-                .background(Circle().fill(Color.black.opacity(0.7)))
+                .background(Circle().fill(coralAccent))
         }
         .padding(.trailing, 18)
         .padding(.bottom, 128)
@@ -246,13 +272,13 @@ struct MainView: View {
             }
             Text("以上内容均由AI生成，请仔细甄别")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(deepBrown)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 14)
         .padding(.top, 8)
         .padding(.bottom, 14)
-        .background(.ultraThinMaterial)
+        .background(warmWhite)
     }
 
     @ViewBuilder private var copyToastOverlay: some View {
@@ -632,14 +658,6 @@ private struct ChatSession: Identifiable, Equatable {
     }
 }
 
-private struct BottomOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = .zero
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 private struct ChatDrawerView: View {
     @Binding var chats: [ChatSession]
     let currentChatId: UUID
@@ -858,11 +876,29 @@ private struct InputBar: View {
     let isSending: Bool
     let onStop: () -> Void
     let onSend: () -> Void
+    private let deepBrown = Color(red: 0.3647, green: 0.2510, blue: 0.2157) // #5D4037
+    private let warmWhite = Color(red: 1.0, green: 0.9882, blue: 0.9608).opacity(0.85) // rgba(255,252,245,0.85)
+    private let coralAccent = Color(red: 1.0, green: 0.5412, blue: 0.3961) // #FF8A65
 
     var body: some View {
         HStack(spacing: 12) {
-            TextField("输入你的问题...", text: $text)
-                .textFieldStyle(.roundedBorder)
+            TextField(
+                "",
+                text: $text,
+                prompt: Text("输入你的问题...")
+                    .foregroundColor(deepBrown.opacity(0.55))
+            )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .foregroundStyle(deepBrown)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(warmWhite)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(deepBrown.opacity(0.18), lineWidth: 0.8)
+                )
                 .focused(focus)
                 .submitLabel(.send)
                 .onSubmit {
@@ -877,9 +913,9 @@ private struct InputBar: View {
             } else {
             Button(action: onSend) {
                 Image(systemName: "paperplane.fill")
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.white)
                     .padding(10)
-                    .background(Circle().fill(Color.purple))
+                    .background(Circle().fill(coralAccent))
                 }
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }

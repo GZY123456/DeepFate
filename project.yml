@@ -2,7 +2,7 @@ name: DeepFate
 options:
   bundleIdPrefix: com.guozhenyu
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "18.0"
 targets:
   DeepFate:
     type: application

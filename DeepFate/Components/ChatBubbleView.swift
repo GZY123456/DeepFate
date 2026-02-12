@@ -1,4 +1,3 @@
-import MarkdownUI
 import SwiftUI
 
 struct ChatBubbleView: View {
@@ -42,11 +41,11 @@ struct ChatBubbleView: View {
     }
 
     private var bubble: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let deepBrown = Color(red: 0.3647, green: 0.2510, blue: 0.2157) // #5D4037
+        let warmWhite = Color(red: 1.0, green: 0.9882, blue: 0.9608).opacity(0.85) // rgba(255,252,245,0.85)
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .bottom, spacing: 2) {
-                Markdown(preprocessedMarkdown(message.text))
-                    .markdownTheme(.basic)
-                    .foregroundStyle(message.isUser ? .white : .primary)
+                formattedText(message.text, color: deepBrown)
                 if message.isStreaming {
                     Text("▍")
                         .opacity(cursorOpacity)
@@ -67,8 +66,17 @@ struct ChatBubbleView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(message.isUser ? Color.purple : Color.white.opacity(0.12))
+                .fill(warmWhite)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(deepBrown.opacity(0.16), lineWidth: 0.6)
+        )
+    }
+
+    private func formattedText(_ text: String, color: Color) -> some View {
+        Text(preprocessedMarkdown(text))
+            .foregroundStyle(color)
     }
 
     private var actionBar: some View {
@@ -88,11 +96,11 @@ struct ChatBubbleView: View {
             if message.isIncomplete {
                 Text("未完成")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color(red: 0.3647, green: 0.2510, blue: 0.2157))
             }
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Color(red: 0.3647, green: 0.2510, blue: 0.2157))
         .opacity(message.isStreaming ? 0 : 1)
     }
 

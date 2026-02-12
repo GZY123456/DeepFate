@@ -65,6 +65,16 @@ private struct BackendProfilePayload: Encodable {
     let name: String
     let gender: String
     let location: String
+    let locationProvince: String
+    let locationCity: String
+    let locationDistrict: String
+    let locationDetail: String
+    let latitude: Double
+    let longitude: Double
+    let timezoneId: String
+    let utcOffsetMinutes: Int?
+    let placeSource: String
+    let locationAdcode: String
     let solar: String
     let lunar: String
     let trueSolar: String
@@ -74,7 +84,17 @@ private struct BackendProfilePayload: Encodable {
         self.userId = userId
         name = profile.name
         gender = profile.gender.rawValue
-        location = "\(profile.location.province)\(profile.location.city)\(profile.location.district)"
+        location = profile.location.fullDisplayText
+        locationProvince = profile.location.province
+        locationCity = profile.location.city
+        locationDistrict = profile.location.district
+        locationDetail = profile.location.detailAddress
+        latitude = profile.location.latitude
+        longitude = profile.location.longitude
+        timezoneId = profile.location.timezoneID
+        utcOffsetMinutes = profile.location.utcOffsetMinutesAtBirth
+        placeSource = profile.location.placeSource
+        locationAdcode = profile.location.locationAdcode
         solar = formatDateComponents(profile.birthInfo.solarComponents)
         lunar = formatDateComponents(profile.birthInfo.lunarComponents)
         trueSolar = formatDateComponents(profile.trueSolarComponents)

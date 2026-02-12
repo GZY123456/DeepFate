@@ -132,7 +132,7 @@ struct LoginView: View {
             .padding(.horizontal, 20)
         }
         .navigationTitle("登录")
-        .onChange(of: authViewModel.isAuthenticated) { _ in
+        .onChange(of: authViewModel.isAuthenticated) {
             if authViewModel.isAuthenticated {
                 loginName = authViewModel.displayName
                 isLoggedIn = true
@@ -143,7 +143,7 @@ struct LoginView: View {
                 }
             }
         }
-        .onChange(of: authViewModel.needsAccountSetup) { _ in
+        .onChange(of: authViewModel.needsAccountSetup) {
             if authViewModel.needsAccountSetup {
                 showCreateAccount = true
             }
