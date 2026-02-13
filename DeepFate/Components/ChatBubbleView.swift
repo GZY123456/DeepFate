@@ -9,7 +9,10 @@ struct ChatBubbleView: View {
     let onEdit: (() -> Void)?
     let onCopy: (() -> Void)?
     let onSpeak: (() -> Void)?
+    @Environment(\.consultTheme) private var consultTheme
     @State private var cursorOpacity: Double = 1
+
+    private var theme: ConsultTheme { consultTheme ?? .soft }
 
     var body: some View {
         HStack {
@@ -41,11 +44,9 @@ struct ChatBubbleView: View {
     }
 
     private var bubble: some View {
-        let deepBrown = Color(red: 0.3647, green: 0.2510, blue: 0.2157) // #5D4037
-        let warmWhite = Color(red: 1.0, green: 0.9882, blue: 0.9608).opacity(0.85) // rgba(255,252,245,0.85)
-        return VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .bottom, spacing: 2) {
-                formattedText(message.text, color: deepBrown)
+                formattedText(message.text, color: theme.primaryText)
                 if message.isStreaming {
                     Text("▍")
                         .opacity(cursorOpacity)
@@ -66,11 +67,11 @@ struct ChatBubbleView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(warmWhite)
+                .fill(theme.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(deepBrown.opacity(0.16), lineWidth: 0.6)
+                .stroke(theme.primaryTextBorder, lineWidth: 0.6)
         )
     }
 
@@ -96,11 +97,11 @@ struct ChatBubbleView: View {
             if message.isIncomplete {
                 Text("未完成")
                     .font(.caption)
-                    .foregroundStyle(Color(red: 0.3647, green: 0.2510, blue: 0.2157))
+                    .foregroundStyle(theme.primaryText)
             }
         }
         .font(.caption)
-        .foregroundStyle(Color(red: 0.3647, green: 0.2510, blue: 0.2157))
+        .foregroundStyle(theme.primaryText)
         .opacity(message.isStreaming ? 0 : 1)
     }
 

@@ -119,6 +119,34 @@ struct OneThingClient {
         }
     }
 
+    func deleteRecord(profileId: UUID, recordId: String) async throws {
+        guard var components = URLComponents(string: backend.baseURL + "/one-thing/record/\(recordId)") else {
+            throw OneThingClientError.invalidURL
+        }
+        components.queryItems = [URLQueryItem(name: "profile_id", value: profileId.uuidString)]
+        guard let url = components.url else { throw OneThingClientError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+
+        let (_, response): (Data, URLResponse)
+        do {
+            (_, response) = try await session.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw OneThingClientError.timeout
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw OneThingClientError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 404 {
+                return
+            }
+            throw OneThingClientError.serverError(code: http.statusCode, message: nil)
+        }
+    }
+
     func cast(profileId: UUID, question: String, startedAt: Date, tosses: [[String]]) async throws -> OneThingResult {
         guard let url = URL(string: backend.baseURL + "/one-thing/cast") else {
             throw OneThingClientError.invalidURL

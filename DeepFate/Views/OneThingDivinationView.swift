@@ -19,6 +19,8 @@ struct OneThingDivinationView: View {
     @State private var isSubmitting = false
     @State private var isAskingAI = false
     @State private var showQuestionSheet = false
+    /// 被测算的人（占卜对象），在输入测算问题的 sheet 中选择，提交摇卦时使用
+    @State private var divinationSubjectId: UUID?
     @State private var showProfilePicker = false
     @State private var showSixRelativesSheet = false
     @State private var showHistorySheet = false
@@ -33,6 +35,12 @@ struct OneThingDivinationView: View {
 
     private var activeProfile: UserProfile? {
         guard let id = profileStore.activeProfileID else { return nil }
+        return profileStore.profiles.first { $0.id == id }
+    }
+
+    /// 当前占卜对象（被测算的人），未选时用当前登录档案
+    private var divinationSubjectProfile: UserProfile? {
+        guard let id = divinationSubjectId else { return activeProfile }
         return profileStore.profiles.first { $0.id == id }
     }
 
@@ -94,7 +102,7 @@ struct OneThingDivinationView: View {
             .ignoresSafeArea()
 
             if let result = todayResult {
-                resultView(result: result, profile: profile)
+                resultView(result: result, profile: divinationSubjectProfile ?? profile)
             } else {
                 castingView(profile: profile)
             }
@@ -113,6 +121,7 @@ struct OneThingDivinationView: View {
                             Text("先输入你要测算的一件事")
                                 .font(.headline)
                             Button("输入测算问题") {
+                                divinationSubjectId = activeProfile?.id
                                 showQuestionSheet = true
                             }
                             .buttonStyle(.borderedProminent)
@@ -122,7 +131,7 @@ struct OneThingDivinationView: View {
                         questionCard
                         sixYaoBoard
                         coinArea
-                        actionArea(profile: profile)
+                        actionArea(profile: divinationSubjectProfile ?? profile)
                     }
                 }
 
@@ -409,6 +418,35 @@ struct OneThingDivinationView: View {
 
     private func questionInputSheet() -> some View {
         VStack(alignment: .leading, spacing: 14) {
+            Text("被测算的人")
+                .font(.headline)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(profileStore.profiles) { profile in
+                        Button {
+                            divinationSubjectId = profile.id
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(profile.name)
+                                    .font(.subheadline.weight(.medium))
+                                if divinationSubjectId == profile.id {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.caption)
+                                }
+                            }
+                            .foregroundStyle(divinationSubjectId == profile.id ? .white : Color(red: 0.36, green: 0.27, blue: 0.22))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(divinationSubjectId == profile.id ? Color(red: 0.58, green: 0.36, blue: 0.27) : Color(red: 0.94, green: 0.9, blue: 0.86))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
             Text("输入要测算的事情")
                 .font(.headline)
             ZStack(alignment: .leading) {
@@ -455,7 +493,7 @@ struct OneThingDivinationView: View {
             .disabled(questionInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(18)
-        .presentationDetents([.height(300)])
+        .presentationDetents([.height(400)])
     }
 
     private func sixRelativesSheet(_ result: OneThingResult) -> some View {
@@ -553,22 +591,25 @@ struct OneThingDivinationView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(historyItems) { item in
-                        Button {
-                            Task { await loadHistoryRecord(item.id) }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(item.question)
-                                    .font(.headline)
-                                    .foregroundStyle(Color(red: 0.22, green: 0.18, blue: 0.14))
-                                    .lineLimit(2)
-                                Text("\(item.startedAt)  ·  \(item.primaryName)→\(item.changedName)  ·  \(item.conclusion)")
-                                    .font(.caption)
-                                    .foregroundStyle(Color(red: 0.5, green: 0.42, blue: 0.34))
-                                    .lineLimit(1)
+                    List {
+                        ForEach(historyItems) { item in
+                            Button {
+                                Task { await loadHistoryRecord(item.id) }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(item.question)
+                                        .font(.headline)
+                                        .foregroundStyle(Color(red: 0.22, green: 0.18, blue: 0.14))
+                                        .lineLimit(2)
+                                    Text("\(item.startedAt)  ·  \(item.primaryName)→\(item.changedName)  ·  \(item.conclusion)")
+                                        .font(.caption)
+                                        .foregroundStyle(Color(red: 0.5, green: 0.42, blue: 0.34))
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .onDelete(perform: deleteHistoryItems(at:))
                     }
                     .listStyle(.plain)
                 }
@@ -741,6 +782,17 @@ struct OneThingDivinationView: View {
         }
     }
 
+    private func deleteHistoryItems(at offsets: IndexSet) {
+        let toRemove = offsets.map { historyItems[$0] }
+        historyItems.remove(atOffsets: offsets)
+        guard let profile = divinationSubjectProfile ?? activeProfile else { return }
+        for item in toRemove {
+            Task {
+                try? await client.deleteRecord(profileId: profile.id, recordId: item.id)
+            }
+        }
+    }
+
     private func startNewDivination() {
         todayResult = nil
         activeQuestion = ""
@@ -751,6 +803,7 @@ struct OneThingDivinationView: View {
         startedAt = Date()
         errorMessage = nil
         askError = nil
+        divinationSubjectId = profileStore.activeProfileID
         showQuestionSheet = true
     }
 

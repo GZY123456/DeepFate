@@ -27,10 +27,12 @@ struct MainView: View {
     @State private var isUserDragging = false
     @State private var chatRatio: CGFloat = 0.5
     @AppStorage("isLoggedIn") private var isLoggedIn = false
+    @AppStorage("selectedTianshiId") private var selectedTianshiId: String = Tianshi.soft.rawValue
+    @State private var showTianshiPicker = false
     private let chatClient = SparkChatClient()
-    private let deepBrown = Color(red: 0.3647, green: 0.2510, blue: 0.2157) // #5D4037
-    private let warmWhite = Color(red: 1.0, green: 0.9882, blue: 0.9608).opacity(0.85) // rgba(255,252,245,0.85)
-    private let coralAccent = Color(red: 1.0, green: 0.5412, blue: 0.3961) // #FF8A65
+
+    private var currentTianshi: Tianshi { Tianshi(rawValue: selectedTianshiId) ?? .soft }
+    private var currentTheme: ConsultTheme { currentTianshi.theme }
 
     private let suggestions = [
         "测算今日运势",
@@ -72,16 +74,15 @@ struct MainView: View {
 
     private var chatContent: some View {
         DraggableChatLayout(chatRatio: $chatRatio) {
-            // 上方：原背景插画
-            Image("ConsultBackground")
+            Image(currentTianshi.backgroundImageName)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .clipped()
                 .ignoresSafeArea()
         } chatContent: {
-            // 下方：聊天内容
             chatMainColumn
         }
+        .environment(\.consultTheme, currentTheme)
         .ignoresSafeArea(edges: .top)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -94,34 +95,42 @@ struct MainView: View {
                     }
                 } label: {
                     Image(systemName: "line.3.horizontal")
-                        .foregroundStyle(coralAccent)
+                        .foregroundStyle(currentTheme.accent)
                 }
             }
             ToolbarItem(placement: .principal) {
                 Text(currentChatTitle)
                     .font(.system(size: 16, weight: .semibold))
                     .lineLimit(1)
-                    .foregroundStyle(deepBrown)
+                    .foregroundStyle(currentTheme.primaryText)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showProfilePicker = true
-                } label: {
-                    HStack(spacing: 6) {
-                        ProfileAvatarView(name: activeProfile?.name ?? "档", size: 22)
-                        Text(profileButtonTitle)
-                            .font(.system(size: 12, weight: .medium))
-                            .lineLimit(1)
-                            .foregroundStyle(deepBrown)
+                HStack(spacing: 12) {
+                    Button {
+                        showTianshiPicker = true
+                    } label: {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .foregroundStyle(currentTheme.accent)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule()
-                            .fill(warmWhite)
-                    )
+                    Button {
+                        showProfilePicker = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            ProfileAvatarView(name: activeProfile?.name ?? "档", size: 22)
+                            Text(profileButtonTitle)
+                                .font(.system(size: 12, weight: .medium))
+                                .lineLimit(1)
+                                .foregroundStyle(currentTheme.primaryText)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(currentTheme.surface)
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .overlay(alignment: .top) { copyToastOverlay }
@@ -134,15 +143,22 @@ struct MainView: View {
         }
         .sheet(isPresented: $showProfileSheet) { createProfileSheet }
         .sheet(isPresented: $showProfilePicker) { profilePickerSheet }
+        .sheet(isPresented: $showTianshiPicker) {
+            TianshiPickerSheet(selectedTianshiId: $selectedTianshiId)
+        }
         .onAppear {
             restoreLastChatIfNeeded()
             handlePendingPromptIfNeeded()
+            syncCurrentChatGreetingToTianshi(selectedTianshiId)
         }
         .onChange(of: consultRouter.pendingChartPrompt) { _, newValue in
             if let prompt = newValue, !prompt.isEmpty {
                 sendUserMessage(prompt)
                 consultRouter.clearPendingChart()
             }
+        }
+        .onChange(of: selectedTianshiId) { _, newId in
+            syncCurrentChatGreetingToTianshi(newId)
         }
         .gesture(drawerEdgeDragGesture)
     }
@@ -248,15 +264,16 @@ struct MainView: View {
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Color.white)
                 .frame(width: 36, height: 36)
-                .background(Circle().fill(coralAccent))
+                .background(Circle().fill(currentTheme.accent))
         }
         .padding(.trailing, 18)
         .padding(.bottom, 128)
     }
 
     private var chatInputSection: some View {
-        VStack(spacing: 6) {
-            InputBar(text: $inputText, focus: $isInputFocused, isSending: isSending, onStop: stopSending) {
+        let theme = currentTheme
+        return VStack(spacing: 6) {
+            InputBar(text: $inputText, focus: $isInputFocused, isSending: isSending, theme: theme, onStop: stopSending) {
                 guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                 guard !isSending else { return }
                 pendingPrompt = inputText
@@ -272,13 +289,13 @@ struct MainView: View {
             }
             Text("以上内容均由AI生成，请仔细甄别")
                 .font(.footnote)
-                .foregroundStyle(deepBrown)
+                .foregroundStyle(theme.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 14)
         .padding(.top, 8)
         .padding(.bottom, 14)
-        .background(warmWhite)
+        .background(theme.surface)
     }
 
     @ViewBuilder private var copyToastOverlay: some View {
@@ -326,7 +343,7 @@ struct MainView: View {
                 }
             },
             onCreate: {
-                let chat = ChatSession()
+                let chat = ChatSession(initialMessage: currentTianshi.greeting)
                 chats.insert(chat, at: 0)
                 currentChatId = chat.id
                 lastChatIdString = chat.id.uuidString
@@ -394,6 +411,17 @@ struct MainView: View {
            chats.contains(where: { $0.id == id }) {
             currentChatId = id
         }
+    }
+
+    /// 切换天师后，若当前会话的首条消息是某位天师的开场白，则替换为当前所选天师的开场白
+    private func syncCurrentChatGreetingToTianshi(_ newTianshiId: String) {
+        guard let tianshi = Tianshi(rawValue: newTianshiId),
+              let index = currentChatIndex,
+              !chats[index].messages.isEmpty else { return }
+        let first = chats[index].messages[0]
+        guard !first.isUser,
+              Tianshi.allCases.contains(where: { $0.greeting == first.text }) else { return }
+        chats[index].messages[0].text = tianshi.greeting
     }
 
     private var drawerEdgeDragGesture: some Gesture {
@@ -644,13 +672,13 @@ private struct ChatSession: Identifiable, Equatable {
     let createdAt: Date
     var lastMessageAt: Date?
 
-    static let `default` = ChatSession(id: UUID(), title: "新建聊天")
+    static let `default` = ChatSession(initialMessage: Tianshi.soft.greeting)
 
-    init(id: UUID = UUID(), title: String = "新建聊天") {
+    init(id: UUID = UUID(), title: String = "新建聊天", initialMessage: String? = nil) {
         self.id = id
         self.title = title
         self.messages = [
-            ChatMessage(text: "欢迎来到 DeepFate，告诉我你的困惑。", isUser: false)
+            ChatMessage(text: initialMessage ?? Tianshi.soft.greeting, isUser: false)
         ]
         self.isPinned = false
         self.createdAt = Date()
@@ -828,6 +856,56 @@ private struct ChatDrawerView: View {
     }
 }
 
+private struct TianshiPickerSheet: View {
+    @Binding var selectedTianshiId: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Text("选择天师")
+                    .font(.headline)
+                    .padding(.top, 8)
+                HStack(spacing: 32) {
+                    ForEach(Tianshi.allCases) { tianshi in
+                        Button {
+                            selectedTianshiId = tianshi.rawValue
+                            dismiss()
+                        } label: {
+                            VStack(spacing: 10) {
+                                Image(tianshi.avatarImageName)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 80, height: 80)
+                                    .clipShape(Circle())
+                                    .overlay(
+                                        Circle()
+                                            .stroke(selectedTianshiId == tianshi.rawValue ? tianshi.theme.accent : Color.clear, lineWidth: 3)
+                                    )
+                                Text(tianshi.displayName)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.primary)
+                            }
+                            .frame(width: 100)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 20)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            .background(Color(.systemGroupedBackground))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
 private struct ProfileSelectionBar: View {
     let profile: UserProfile?
     let onSelect: () -> Void
@@ -874,11 +952,9 @@ private struct InputBar: View {
     @Binding var text: String
     let focus: FocusState<Bool>.Binding
     let isSending: Bool
+    let theme: ConsultTheme
     let onStop: () -> Void
     let onSend: () -> Void
-    private let deepBrown = Color(red: 0.3647, green: 0.2510, blue: 0.2157) // #5D4037
-    private let warmWhite = Color(red: 1.0, green: 0.9882, blue: 0.9608).opacity(0.85) // rgba(255,252,245,0.85)
-    private let coralAccent = Color(red: 1.0, green: 0.5412, blue: 0.3961) // #FF8A65
 
     var body: some View {
         HStack(spacing: 12) {
@@ -886,18 +962,18 @@ private struct InputBar: View {
                 "",
                 text: $text,
                 prompt: Text("输入你的问题...")
-                    .foregroundColor(deepBrown.opacity(0.55))
+                    .foregroundColor(theme.primaryTextMuted)
             )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .foregroundStyle(deepBrown)
+                .foregroundStyle(theme.primaryText)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(warmWhite)
+                        .fill(theme.surface)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(deepBrown.opacity(0.18), lineWidth: 0.8)
+                        .stroke(theme.primaryTextBorder, lineWidth: 0.8)
                 )
                 .focused(focus)
                 .submitLabel(.send)
@@ -915,7 +991,7 @@ private struct InputBar: View {
                 Image(systemName: "paperplane.fill")
                     .foregroundStyle(Color.white)
                     .padding(10)
-                    .background(Circle().fill(coralAccent))
+                    .background(Circle().fill(theme.accent))
                 }
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }

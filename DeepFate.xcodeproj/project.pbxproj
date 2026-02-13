@@ -34,6 +34,7 @@
 		9D794C82D645FBBCB891382B /* DraggableChatLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42FFCD173882F28D6AB4D195 /* DraggableChatLayout.swift */; };
 		A0EF070D65591B40B59682CF /* ImagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8757C1E8730A73F4A249835C /* ImagePicker.swift */; };
 		A14847EE21188C6F730023AB /* OneThingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B81CEB2CA60768586FA2169 /* OneThingModels.swift */; };
+		A6096953F547F29872A48096 /* ConsultTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A492480412813C3242D314 /* ConsultTheme.swift */; };
 		A8072D8EDCF892CEA1DC54BC /* DrawModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADBDB7C12EF1A6E2AF6C22B7 /* DrawModels.swift */; };
 		AE07B071EE52DF7BE75CC748 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 37B9B89B3843CCE811F3D9FA /* Assets.xcassets */; };
 		B0EA6DA0B4A8FBB940FA0E82 /* XiuXinView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8E31855AE4C64DDB3F1C3F /* XiuXinView.swift */; };
@@ -90,6 +91,7 @@
 		CD55EFE8CD1F6DC04A479B89 /* ChartClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartClient.swift; sourceTree = "<group>"; };
 		CDD6E8D3101EEC60A48E08B3 /* ProfileSyncClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSyncClient.swift; sourceTree = "<group>"; };
 		DE6F5F572549CCBD09D8F77A /* SparkChatClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkChatClient.swift; sourceTree = "<group>"; };
+		E4A492480412813C3242D314 /* ConsultTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsultTheme.swift; sourceTree = "<group>"; };
 		EFDA4FD9A648177B183EFFA0 /* ConsultRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsultRouter.swift; sourceTree = "<group>"; };
 		F708A106987E1C83D9DA3917 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -136,6 +138,7 @@
 			isa = PBXGroup;
 			children = (
 				2102141037C6D328A5794BB7 /* BaZiModel.swift */,
+				E4A492480412813C3242D314 /* ConsultTheme.swift */,
 				ADBDB7C12EF1A6E2AF6C22B7 /* DrawModels.swift */,
 				4B81CEB2CA60768586FA2169 /* OneThingModels.swift */,
 				AF7AB1C4A4DE649E15AAA8ED /* ProfileModels.swift */,
@@ -281,6 +284,7 @@
 				BA4731617EB82455C400FE91 /* ChatBubbleView.swift in Sources */,
 				14AE740A28A348A68CFC3C16 /* ChatMessage.swift in Sources */,
 				57D7618375D8C105FDFF61FA /* ConsultRouter.swift in Sources */,
+				A6096953F547F29872A48096 /* ConsultTheme.swift in Sources */,
 				B800EF6C7701DFD24FD4AC27 /* ContentView.swift in Sources */,
 				C14B3B41D7D815E8A813AEA3 /* CreateProfileSheet.swift in Sources */,
 				2495E1D034207D6B9267F9DC /* DeepFateApp.swift in Sources */,

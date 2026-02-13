@@ -1161,6 +1161,19 @@ def fetch_one_thing_divination_by_id(profile_id, row_id, timezone_id="Asia/Shang
     return _to_one_thing_payload(row, timezone_id)
 
 
+def delete_one_thing_divination(profile_id, row_id):
+    with get_db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM one_thing_divinations
+                WHERE profile_id = %s AND id = %s
+                """,
+                (str(profile_id), str(row_id)),
+            )
+            return cur.rowcount > 0
+
+
 def list_one_thing_history(profile_id, timezone_id="Asia/Shanghai", limit=30):
     n = max(1, min(int(limit), 100))
     with get_db_conn() as conn:
@@ -1567,6 +1580,20 @@ def get_one_thing_record(record_id):
     if not record:
         return jsonify({"error": "not found"}), 404
     return jsonify(record)
+
+
+@app.delete("/one-thing/record/<record_id>")
+def delete_one_thing_record(record_id):
+    profile_id = request.args.get("profile_id") or request.args.get("profileId")
+    if not profile_id:
+        return jsonify({"error": "profile_id required"}), 400
+    profile = fetch_profile(profile_id)
+    if not profile:
+        return jsonify({"error": "profile not found"}), 404
+    deleted = delete_one_thing_divination(profile_id, record_id)
+    if not deleted:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"ok": True})
 
 
 @app.post("/one-thing/cast")

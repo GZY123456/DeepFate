@@ -4,8 +4,9 @@ struct SuggestionChipsView: View {
     let suggestions: [String]
     let isDisabled: Bool
     let onTap: (String) -> Void
-    private let deepBrown = Color(red: 0.3647, green: 0.2510, blue: 0.2157) // #5D4037
-    private let warmWhite = Color(red: 1.0, green: 0.9882, blue: 0.9608).opacity(0.85) // rgba(255,252,245,0.85)
+    @Environment(\.consultTheme) private var consultTheme
+
+    private var theme: ConsultTheme { consultTheme ?? .soft }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -14,12 +15,12 @@ struct SuggestionChipsView: View {
                     Button(action: { onTap(item) }) {
                         Text(item)
                             .font(.subheadline)
-                            .foregroundStyle(deepBrown)
+                            .foregroundStyle(theme.primaryText)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
                             .background(
                                 Capsule()
-                                    .fill(warmWhite)
+                                    .fill(theme.surface)
                             )
                     }
                     .buttonStyle(.plain)
