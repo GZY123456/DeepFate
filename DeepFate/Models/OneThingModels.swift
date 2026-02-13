@@ -72,15 +72,26 @@ struct OneThingAnalysis: Codable, Equatable {
 }
 
 struct OneThingResult: Codable, Equatable, Identifiable {
-    var id: String { "\(date)-\(question)" }
+    let id: String
     let date: String
     let question: String
     let startedAt: String
+    let startedAtISO: String?
     let ganZhi: OneThingGanZhi
     let tosses: [[String]]
     let lines: [OneThingLine]
     let hexagram: OneThingHexagramGroup
     let analysis: OneThingAnalysis
+}
+
+struct OneThingHistoryItem: Codable, Equatable, Identifiable {
+    let id: String
+    let date: String
+    let startedAt: String
+    let question: String
+    let conclusion: String
+    let primaryName: String
+    let changedName: String
 }
 
 struct OneThingCastPayload: Codable {

@@ -24,13 +24,13 @@ struct OneThingClient {
     private let backend = SparkBackendConfig()
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 20
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 45
         return URLSession(configuration: config)
     }()
 
-    func fetchToday(profileId: UUID) async throws -> OneThingResult {
-        guard var components = URLComponents(string: backend.baseURL + "/one-thing/today") else {
+    func fetchLatest(profileId: UUID) async throws -> OneThingResult {
+        guard var components = URLComponents(string: backend.baseURL + "/one-thing/latest") else {
             throw OneThingClientError.invalidURL
         }
         components.queryItems = [URLQueryItem(name: "profile_id", value: profileId.uuidString)]
@@ -60,6 +60,65 @@ struct OneThingClient {
         }
     }
 
+    func fetchHistory(profileId: UUID, limit: Int = 30) async throws -> [OneThingHistoryItem] {
+        guard var components = URLComponents(string: backend.baseURL + "/one-thing/history") else {
+            throw OneThingClientError.invalidURL
+        }
+        components.queryItems = [
+            URLQueryItem(name: "profile_id", value: profileId.uuidString),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        guard let url = components.url else { throw OneThingClientError.invalidURL }
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(from: url)
+        } catch let error as URLError where error.code == .timedOut {
+            throw OneThingClientError.timeout
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw OneThingClientError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+            throw OneThingClientError.serverError(code: http.statusCode, message: msg)
+        }
+        do {
+            return try JSONDecoder().decode([OneThingHistoryItem].self, from: data)
+        } catch {
+            throw OneThingClientError.invalidResponse
+        }
+    }
+
+    func fetchRecord(profileId: UUID, recordId: String) async throws -> OneThingResult {
+        guard var components = URLComponents(string: backend.baseURL + "/one-thing/record/\(recordId)") else {
+            throw OneThingClientError.invalidURL
+        }
+        components.queryItems = [URLQueryItem(name: "profile_id", value: profileId.uuidString)]
+        guard let url = components.url else { throw OneThingClientError.invalidURL }
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(from: url)
+        } catch let error as URLError where error.code == .timedOut {
+            throw OneThingClientError.timeout
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw OneThingClientError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+            throw OneThingClientError.serverError(code: http.statusCode, message: msg)
+        }
+        do {
+            return try JSONDecoder().decode(OneThingResult.self, from: data)
+        } catch {
+            throw OneThingClientError.invalidResponse
+        }
+    }
+
     func cast(profileId: UUID, question: String, startedAt: Date, tosses: [[String]]) async throws -> OneThingResult {
         guard let url = URL(string: backend.baseURL + "/one-thing/cast") else {
             throw OneThingClientError.invalidURL
@@ -77,7 +136,7 @@ struct OneThingClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 20
+        request.timeoutInterval = 45
         request.httpBody = try JSONEncoder().encode(payload)
 
         let (data, response): (Data, URLResponse)

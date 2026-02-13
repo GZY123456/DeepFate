@@ -11,8 +11,8 @@ struct OneThingDivinationView: View {
     @State private var questionInput = ""
     @State private var tosses: [[String]] = []
     @State private var coinFaces: [CoinFace] = [.front, .back, .front]
+    @State private var coinRotations: [Double] = [0, 0, 0]
     @State private var startedAt = Date()
-    @State private var spinAngle: Double = 0
 
     @State private var isLoadingToday = false
     @State private var isShaking = false
@@ -21,6 +21,10 @@ struct OneThingDivinationView: View {
     @State private var showQuestionSheet = false
     @State private var showProfilePicker = false
     @State private var showSixRelativesSheet = false
+    @State private var showHistorySheet = false
+    @State private var historyItems: [OneThingHistoryItem] = []
+    @State private var isLoadingHistory = false
+    @State private var historyError: String?
     @State private var errorMessage: String?
     @State private var askError: String?
 
@@ -56,7 +60,7 @@ struct OneThingDivinationView: View {
             profilePickerSheet
         }
         .sheet(isPresented: $showQuestionSheet) {
-            questionInputSheet
+            questionInputSheet()
                 .interactiveDismissDisabled(true)
         }
         .sheet(isPresented: $showSixRelativesSheet) {
@@ -64,13 +68,16 @@ struct OneThingDivinationView: View {
                 sixRelativesSheet(result)
             }
         }
+        .sheet(isPresented: $showHistorySheet) {
+            historySheet
+        }
         .onAppear {
             guard let profile = activeProfile else { return }
-            Task { await loadToday(for: profile) }
+            Task { await loadLatest(for: profile) }
         }
         .onChange(of: profileStore.activeProfileID) { _, _ in
             guard let profile = activeProfile else { return }
-            Task { await loadToday(for: profile) }
+            Task { await loadLatest(for: profile) }
         }
     }
 
@@ -193,7 +200,7 @@ struct OneThingDivinationView: View {
         VStack(spacing: 14) {
             HStack(spacing: 16) {
                 ForEach(0..<3, id: \.self) { index in
-                    CoinFaceView(face: coinFaces[index], spinAngle: spinAngle + Double(index) * 22)
+                    CoinFaceView(face: coinFaces[index], spinAngle: coinRotations[index])
                 }
             }
             Text("摇卦进度：\(tosses.count)/6")
@@ -205,18 +212,33 @@ struct OneThingDivinationView: View {
 
     private func actionArea(profile: UserProfile) -> some View {
         VStack(spacing: 12) {
-            Button {
-                shakeOnce(profile: profile)
-            } label: {
-                Text(buttonTitle)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color(red: 0.58, green: 0.36, blue: 0.27))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            if tosses.count < 6 {
+                Button {
+                    shakeOnce(profile: profile)
+                } label: {
+                    Text(buttonTitle)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color(red: 0.58, green: 0.36, blue: 0.27))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .disabled(isShaking || isSubmitting || activeQuestion.isEmpty)
+            } else {
+                Button {
+                    Task { await submitCasting(profile: profile) }
+                } label: {
+                    Text(isSubmitting ? "排卦中..." : "重新排卦")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color(red: 0.58, green: 0.36, blue: 0.27))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .disabled(isSubmitting || isShaking)
             }
-            .disabled(isShaking || isSubmitting || tosses.count >= 6 || activeQuestion.isEmpty)
 
             if tosses.count < 6 {
                 Button("重置重摇") {
@@ -229,9 +251,8 @@ struct OneThingDivinationView: View {
     }
 
     private var buttonTitle: String {
-        if isSubmitting { return "排卦中..." }
         if isShaking { return "摇卦中..." }
-        if tosses.count >= 6 { return "卦象已成" }
+        if isSubmitting { return "排卦中..." }
         return "摇一摇"
     }
 
@@ -239,8 +260,11 @@ struct OneThingDivinationView: View {
         ScrollView {
             VStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 8) {
+                    Text("问事主题")
+                        .font(.caption)
+                        .foregroundStyle(Color(red: 0.49, green: 0.4, blue: 0.33))
                     Text(result.question)
-                        .font(.title3.weight(.semibold))
+                        .font(.title3.weight(.bold))
                         .foregroundStyle(Color(red: 0.24, green: 0.19, blue: 0.15))
                     Text("起卦：\(result.startedAt)")
                         .font(.caption)
@@ -310,6 +334,39 @@ struct OneThingDivinationView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .disabled(isAskingAI)
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await loadHistory(for: profile) }
+                    } label: {
+                        Text("历史记录")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color(red: 0.36, green: 0.27, blue: 0.22))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color.white.opacity(0.88))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isLoadingHistory)
+
+                    Button {
+                        startNewDivination()
+                    } label: {
+                        Text("新的占卜")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color(red: 0.58, green: 0.36, blue: 0.27))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
@@ -450,7 +507,7 @@ struct OneThingDivinationView: View {
                 Button {
                     profileStore.setActive(profile.id)
                     showProfilePicker = false
-                    Task { await loadToday(for: profile) }
+                    Task { await loadLatest(for: profile) }
                 } label: {
                     HStack {
                         Text(profile.name)
@@ -467,6 +524,61 @@ struct OneThingDivinationView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("完成") {
                         showProfilePicker = false
+                    }
+                }
+            }
+        }
+    }
+
+    private var historySheet: some View {
+        NavigationStack {
+            Group {
+                if isLoadingHistory {
+                    ProgressView("加载中...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let historyError {
+                    VStack(spacing: 12) {
+                        Text(historyError)
+                            .foregroundStyle(.red)
+                        if let profile = activeProfile {
+                            Button("重试") {
+                                Task { await loadHistory(for: profile) }
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if historyItems.isEmpty {
+                    Text("暂无历史记录")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(historyItems) { item in
+                        Button {
+                            Task { await loadHistoryRecord(item.id) }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(item.question)
+                                    .font(.headline)
+                                    .foregroundStyle(Color(red: 0.22, green: 0.18, blue: 0.14))
+                                    .lineLimit(2)
+                                Text("\(item.startedAt)  ·  \(item.primaryName)→\(item.changedName)  ·  \(item.conclusion)")
+                                    .font(.caption)
+                                    .foregroundStyle(Color(red: 0.5, green: 0.42, blue: 0.34))
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("历史记录")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") {
+                        showHistorySheet = false
                     }
                 }
             }
@@ -495,6 +607,8 @@ struct OneThingDivinationView: View {
         guard !trimmed.isEmpty else { return }
         activeQuestion = trimmed
         tosses = []
+        coinRotations = [0, 0, 0]
+        coinFaces = [.front, .back, .front]
         startedAt = Date()
         errorMessage = nil
         todayResult = nil
@@ -506,12 +620,19 @@ struct OneThingDivinationView: View {
         isShaking = true
         errorMessage = nil
         withAnimation(.easeInOut(duration: 0.55)) {
-            spinAngle += 360
+            coinRotations = [
+                Double.random(in: 540...900),
+                Double.random(in: 720...1080),
+                Double.random(in: 600...960)
+            ]
         }
         let nextFaces = (0..<3).map { _ in Bool.random() ? CoinFace.front : CoinFace.back }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             coinFaces = nextFaces
             tosses.append(nextFaces.map(\.rawValue))
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                coinRotations = [0, 0, 0]
+            }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             isShaking = false
             if tosses.count == 6 {
@@ -522,6 +643,10 @@ struct OneThingDivinationView: View {
     }
 
     private func submitCasting(profile: UserProfile) async {
+        await MainActor.run {
+            isSubmitting = true
+            errorMessage = nil
+        }
         do {
             let result = try await client.cast(
                 profileId: profile.id,
@@ -542,17 +667,19 @@ struct OneThingDivinationView: View {
         }
     }
 
-    private func loadToday(for profile: UserProfile) async {
+    private func loadLatest(for profile: UserProfile) async {
         await MainActor.run {
             isLoadingToday = true
             errorMessage = nil
             todayResult = nil
             tosses = []
+            coinRotations = [0, 0, 0]
+            coinFaces = [.front, .back, .front]
             activeQuestion = ""
             questionInput = ""
         }
         do {
-            let result = try await client.fetchToday(profileId: profile.id)
+            let result = try await client.fetchLatest(profileId: profile.id)
             await MainActor.run {
                 todayResult = result
                 activeQuestion = result.question
@@ -564,7 +691,7 @@ struct OneThingDivinationView: View {
                 isLoadingToday = false
                 switch err {
                 case let .serverError(code, _) where code == 404:
-                    showQuestionSheet = true
+                    startNewDivination()
                 default:
                     errorMessage = err.localizedDescription
                 }
@@ -575,6 +702,56 @@ struct OneThingDivinationView: View {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    private func loadHistory(for profile: UserProfile) async {
+        await MainActor.run {
+            isLoadingHistory = true
+            historyError = nil
+            showHistorySheet = true
+        }
+        do {
+            let items = try await client.fetchHistory(profileId: profile.id, limit: 50)
+            await MainActor.run {
+                historyItems = items
+                isLoadingHistory = false
+            }
+        } catch {
+            await MainActor.run {
+                historyError = error.localizedDescription
+                isLoadingHistory = false
+            }
+        }
+    }
+
+    private func loadHistoryRecord(_ id: String) async {
+        guard let profile = activeProfile else { return }
+        do {
+            let record = try await client.fetchRecord(profileId: profile.id, recordId: id)
+            await MainActor.run {
+                todayResult = record
+                activeQuestion = record.question
+                showHistorySheet = false
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                showHistorySheet = false
+            }
+        }
+    }
+
+    private func startNewDivination() {
+        todayResult = nil
+        activeQuestion = ""
+        questionInput = ""
+        tosses = []
+        coinRotations = [0, 0, 0]
+        coinFaces = [.front, .back, .front]
+        startedAt = Date()
+        errorMessage = nil
+        askError = nil
+        showQuestionSheet = true
     }
 
     private func askAI(profile: UserProfile, result: OneThingResult) async {
@@ -669,6 +846,7 @@ struct OneThingDivinationView: View {
 private struct CoinFaceView: View {
     let face: CoinFace
     let spinAngle: Double
+    private let cutoutColor = Color(red: 0.96, green: 0.93, blue: 0.88)
 
     var body: some View {
         ZStack {
@@ -676,8 +854,9 @@ private struct CoinFaceView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.89, green: 0.75, blue: 0.45),
-                            Color(red: 0.66, green: 0.5, blue: 0.25)
+                            Color(red: 0.94, green: 0.82, blue: 0.52),
+                            Color(red: 0.76, green: 0.58, blue: 0.28),
+                            Color(red: 0.62, green: 0.45, blue: 0.2)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -685,15 +864,33 @@ private struct CoinFaceView: View {
                 )
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(0.45), lineWidth: 1.2)
+                        .stroke(Color(red: 0.97, green: 0.9, blue: 0.72).opacity(0.9), lineWidth: 1.4)
                 )
-            Text(face.rawValue)
-                .font(.title2.bold())
-                .foregroundStyle(Color(red: 0.32, green: 0.2, blue: 0.12))
+            Circle()
+                .stroke(Color(red: 0.55, green: 0.38, blue: 0.16).opacity(0.45), lineWidth: 1.1)
+                .padding(10)
+
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(cutoutColor)
+                .frame(width: 16, height: 16)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .stroke(Color(red: 0.5, green: 0.36, blue: 0.17).opacity(0.45), lineWidth: 0.8)
+                )
+
+            VStack(spacing: 2) {
+                Text(face == .front ? "阳面" : "阴面")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.37, green: 0.24, blue: 0.14))
+                Text(face.rawValue)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(red: 0.3, green: 0.2, blue: 0.12))
+            }
+            .offset(y: 20)
         }
-        .frame(width: 74, height: 74)
+        .frame(width: 84, height: 84)
         .rotation3DEffect(.degrees(spinAngle), axis: (x: 0, y: 1, z: 0))
-        .shadow(color: Color.black.opacity(0.22), radius: 7, x: 0, y: 4)
+        .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
     }
 }
 

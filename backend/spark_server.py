@@ -180,6 +180,18 @@ def init_db():
                 );
                 """
             )
+            cur.execute(
+                """
+                ALTER TABLE one_thing_divinations
+                DROP CONSTRAINT IF EXISTS one_thing_divinations_profile_id_divination_date_key;
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_one_thing_profile_started_at
+                ON one_thing_divinations (profile_id, started_at DESC);
+                """
+            )
 
 
 def _hash_password(password, salt=None):
@@ -1017,7 +1029,7 @@ def _default_liuyao_analysis(question, primary_hexagram, changed_hexagram, movin
     else:
         conclusion = "凶"
     summary = (
-        f"此卦围绕“{question}”显示为{conclusion}势，"
+        f"此卦显示为{conclusion}势，"
         f"本卦{primary_hexagram['name']}转{changed_hexagram['name']}，"
         "宜顺势而行，避免急进。"
     )
@@ -1040,29 +1052,32 @@ def _default_liuyao_analysis(question, primary_hexagram, changed_hexagram, movin
     }
 
 
-def fetch_one_thing_divination(profile_id, divination_date):
-    with get_db_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT question, started_at,
-                       ganzhi_year, ganzhi_month, ganzhi_day, ganzhi_hour, lunar_label,
-                       tosses, lines, primary_hexagram, changed_hexagram, moving_lines,
-                       conclusion, summary, five_elements, advice, six_relatives
-                FROM one_thing_divinations
-                WHERE profile_id = %s AND divination_date = %s
-                """,
-                (str(profile_id), divination_date),
-            )
-            row = cur.fetchone()
+def _to_started_at_text(started_at, timezone_id):
+    if started_at is None:
+        return ""
+    try:
+        zone = ZoneInfo(timezone_id or "Asia/Shanghai")
+    except Exception:
+        zone = ZoneInfo("Asia/Shanghai")
+    try:
+        local_dt = started_at.astimezone(zone)
+    except Exception:
+        local_dt = started_at
+    return local_dt.strftime("%Y-%m-%d %H:%M")
+
+
+def _to_one_thing_payload(row, timezone_id):
     if not row:
         return None
     started_at = row.get("started_at")
+    started_at_text = _to_started_at_text(started_at, timezone_id)
     started_at_iso = started_at.isoformat() if started_at else ""
     return {
-        "date": str(divination_date),
+        "id": str(row.get("id", "")),
+        "date": str(row.get("divination_date", "")),
         "question": row.get("question", ""),
-        "startedAt": started_at_iso,
+        "startedAt": started_at_text,
+        "startedAtISO": started_at_iso,
         "ganZhi": {
             "year": row.get("ganzhi_year", ""),
             "month": row.get("ganzhi_month", ""),
@@ -1085,6 +1100,99 @@ def fetch_one_thing_divination(profile_id, divination_date):
             "sixRelatives": row.get("six_relatives") or [],
         },
     }
+
+
+def fetch_one_thing_divination_by_date(profile_id, divination_date, timezone_id="Asia/Shanghai"):
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, divination_date, question, started_at,
+                       ganzhi_year, ganzhi_month, ganzhi_day, ganzhi_hour, lunar_label,
+                       tosses, lines, primary_hexagram, changed_hexagram, moving_lines,
+                       conclusion, summary, five_elements, advice, six_relatives
+                FROM one_thing_divinations
+                WHERE profile_id = %s AND divination_date = %s
+                ORDER BY started_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                (str(profile_id), divination_date),
+            )
+            row = cur.fetchone()
+    return _to_one_thing_payload(row, timezone_id)
+
+
+def fetch_one_thing_divination_latest(profile_id, timezone_id="Asia/Shanghai"):
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, divination_date, question, started_at,
+                       ganzhi_year, ganzhi_month, ganzhi_day, ganzhi_hour, lunar_label,
+                       tosses, lines, primary_hexagram, changed_hexagram, moving_lines,
+                       conclusion, summary, five_elements, advice, six_relatives
+                FROM one_thing_divinations
+                WHERE profile_id = %s
+                ORDER BY started_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                (str(profile_id),),
+            )
+            row = cur.fetchone()
+    return _to_one_thing_payload(row, timezone_id)
+
+
+def fetch_one_thing_divination_by_id(profile_id, row_id, timezone_id="Asia/Shanghai"):
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, divination_date, question, started_at,
+                       ganzhi_year, ganzhi_month, ganzhi_day, ganzhi_hour, lunar_label,
+                       tosses, lines, primary_hexagram, changed_hexagram, moving_lines,
+                       conclusion, summary, five_elements, advice, six_relatives
+                FROM one_thing_divinations
+                WHERE profile_id = %s AND id = %s
+                LIMIT 1
+                """,
+                (str(profile_id), str(row_id)),
+            )
+            row = cur.fetchone()
+    return _to_one_thing_payload(row, timezone_id)
+
+
+def list_one_thing_history(profile_id, timezone_id="Asia/Shanghai", limit=30):
+    n = max(1, min(int(limit), 100))
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, divination_date, question, started_at,
+                       conclusion, primary_hexagram, changed_hexagram
+                FROM one_thing_divinations
+                WHERE profile_id = %s
+                ORDER BY started_at DESC, created_at DESC
+                LIMIT %s
+                """,
+                (str(profile_id), n),
+            )
+            rows = cur.fetchall()
+    result = []
+    for row in rows:
+        primary_hex = row.get("primary_hexagram") or {}
+        changed_hex = row.get("changed_hexagram") or {}
+        result.append(
+            {
+                "id": str(row.get("id", "")),
+                "date": str(row.get("divination_date", "")),
+                "startedAt": _to_started_at_text(row.get("started_at"), timezone_id),
+                "question": row.get("question", ""),
+                "conclusion": row.get("conclusion", ""),
+                "primaryName": primary_hex.get("name", ""),
+                "changedName": changed_hex.get("name", ""),
+            }
+        )
+    return result
 
 
 def fetch_draw(profile_id, draw_date):
@@ -1410,10 +1518,55 @@ def get_today_one_thing():
     if not profile:
         return jsonify({"error": "profile not found"}), 404
     today = _resolve_profile_today(profile)
-    existing = fetch_one_thing_divination(profile_id, today)
+    existing = fetch_one_thing_divination_by_date(profile_id, today, profile.get("timezoneId", "Asia/Shanghai"))
     if not existing:
         return jsonify({"error": "not found"}), 404
     return jsonify(existing)
+
+
+@app.get("/one-thing/latest")
+def get_latest_one_thing():
+    profile_id = request.args.get("profile_id") or request.args.get("profileId")
+    if not profile_id:
+        return jsonify({"error": "profile_id required"}), 400
+    profile = fetch_profile(profile_id)
+    if not profile:
+        return jsonify({"error": "profile not found"}), 404
+    latest = fetch_one_thing_divination_latest(profile_id, profile.get("timezoneId", "Asia/Shanghai"))
+    if not latest:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(latest)
+
+
+@app.get("/one-thing/history")
+def get_one_thing_history():
+    profile_id = request.args.get("profile_id") or request.args.get("profileId")
+    if not profile_id:
+        return jsonify({"error": "profile_id required"}), 400
+    profile = fetch_profile(profile_id)
+    if not profile:
+        return jsonify({"error": "profile not found"}), 404
+    limit = request.args.get("limit", 30)
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 30
+    items = list_one_thing_history(profile_id, profile.get("timezoneId", "Asia/Shanghai"), limit=limit)
+    return jsonify(items)
+
+
+@app.get("/one-thing/record/<record_id>")
+def get_one_thing_record(record_id):
+    profile_id = request.args.get("profile_id") or request.args.get("profileId")
+    if not profile_id:
+        return jsonify({"error": "profile_id required"}), 400
+    profile = fetch_profile(profile_id)
+    if not profile:
+        return jsonify({"error": "profile not found"}), 404
+    record = fetch_one_thing_divination_by_id(profile_id, record_id, profile.get("timezoneId", "Asia/Shanghai"))
+    if not record:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(record)
 
 
 @app.post("/one-thing/cast")
@@ -1437,9 +1590,6 @@ def cast_one_thing():
     started_at = _parse_iso_datetime(payload.get("startedAt"))
     started_local = started_at.astimezone(zone)
     divination_date = started_local.date()
-    existing = fetch_one_thing_divination(profile_id, divination_date)
-    if existing:
-        return jsonify(existing)
 
     try:
         from lunar_python import Solar
@@ -1486,7 +1636,9 @@ def cast_one_thing():
             [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请输出六爻解读 JSON。"},
-            ]
+            ],
+            recv_timeout=2,
+            max_duration=4,
         )
         llm_parsed = parse_liuyao_response(llm_raw)
     except Exception as exc:  # noqa: BLE001
@@ -1524,7 +1676,7 @@ def cast_one_thing():
                     conclusion, summary, five_elements, advice, six_relatives
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (profile_id, divination_date) DO NOTHING
+                RETURNING id
                 """,
                 (
                     str(profile_id),
@@ -1548,8 +1700,10 @@ def cast_one_thing():
                     psycopg2.extras.Json(six_relatives),
                 ),
             )
+            inserted = cur.fetchone()
+    new_id = inserted[0] if inserted else None
 
-    stored = fetch_one_thing_divination(profile_id, divination_date)
+    stored = fetch_one_thing_divination_by_id(profile_id, new_id, profile.get("timezoneId", "Asia/Shanghai"))
     if not stored:
         return jsonify({"error": "failed to persist divination"}), 500
     return jsonify(stored)
@@ -2065,17 +2219,21 @@ def reset_password():
     return jsonify({"ok": True})
 
 
-def spark_chat(messages):
+def spark_chat(messages, recv_timeout=15, max_duration=120):
     ws_url = create_signed_url()
     if not ws_url:
         return "服务端未配置 Spark 凭证，请联系管理员。"
 
     payload = build_spark_payload(messages)
-    ws = websocket.create_connection(ws_url, sslopt={"cert_reqs": ssl.CERT_NONE})
+    ws = websocket.create_connection(ws_url, timeout=recv_timeout, sslopt={"cert_reqs": ssl.CERT_NONE})
+    ws.settimeout(recv_timeout)
     try:
         ws.send(json.dumps(payload))
         response_text = ""
+        start_ts = time.time()
         while True:
+            if max_duration and time.time() - start_ts > max_duration:
+                raise TimeoutError("spark timeout")
             raw = ws.recv()
             if SPARK_DEBUG_RESPONSE:
                 print("[spark_raw]", raw)
