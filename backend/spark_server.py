@@ -6,7 +6,7 @@ import os
 import random
 import ssl
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from time import mktime
 from urllib.parse import urlencode, urlparse
 from urllib.parse import quote
@@ -149,6 +149,34 @@ def init_db():
                     advice text NOT NULL,
                     created_at timestamptz DEFAULT now(),
                     UNIQUE (profile_id, draw_date)
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS one_thing_divinations (
+                    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+                    profile_id uuid NOT NULL,
+                    divination_date date NOT NULL,
+                    question text NOT NULL,
+                    started_at timestamptz NOT NULL,
+                    ganzhi_year text NOT NULL,
+                    ganzhi_month text NOT NULL,
+                    ganzhi_day text NOT NULL,
+                    ganzhi_hour text NOT NULL,
+                    lunar_label text NOT NULL,
+                    tosses jsonb NOT NULL,
+                    lines jsonb NOT NULL,
+                    primary_hexagram jsonb NOT NULL,
+                    changed_hexagram jsonb NOT NULL,
+                    moving_lines jsonb NOT NULL,
+                    conclusion text NOT NULL,
+                    summary text NOT NULL,
+                    five_elements text NOT NULL,
+                    advice text NOT NULL,
+                    six_relatives jsonb NOT NULL,
+                    created_at timestamptz DEFAULT now(),
+                    UNIQUE (profile_id, divination_date)
                 );
                 """
             )
@@ -683,6 +711,382 @@ def parse_draw_response(text):
     return None
 
 
+_TRIGRAM_BY_BITS = {
+    "111": {"name": "乾", "element": "金"},
+    "110": {"name": "兑", "element": "金"},
+    "101": {"name": "离", "element": "火"},
+    "100": {"name": "震", "element": "木"},
+    "011": {"name": "巽", "element": "木"},
+    "010": {"name": "坎", "element": "水"},
+    "001": {"name": "艮", "element": "土"},
+    "000": {"name": "坤", "element": "土"},
+}
+
+_HEXAGRAM_BY_TRIGRAM = {
+    ("乾", "乾"): (1, "乾为天"),
+    ("坤", "坤"): (2, "坤为地"),
+    ("坎", "震"): (3, "水雷屯"),
+    ("艮", "坎"): (4, "山水蒙"),
+    ("坎", "乾"): (5, "水天需"),
+    ("乾", "坎"): (6, "天水讼"),
+    ("坤", "坎"): (7, "地水师"),
+    ("坎", "坤"): (8, "水地比"),
+    ("巽", "乾"): (9, "风天小畜"),
+    ("乾", "兑"): (10, "天泽履"),
+    ("坤", "乾"): (11, "地天泰"),
+    ("乾", "坤"): (12, "天地否"),
+    ("乾", "离"): (13, "天火同人"),
+    ("离", "乾"): (14, "火天大有"),
+    ("坤", "艮"): (15, "地山谦"),
+    ("震", "坤"): (16, "雷地豫"),
+    ("兑", "震"): (17, "泽雷随"),
+    ("艮", "巽"): (18, "山风蛊"),
+    ("坤", "兑"): (19, "地泽临"),
+    ("巽", "坤"): (20, "风地观"),
+    ("离", "震"): (21, "火雷噬嗑"),
+    ("艮", "离"): (22, "山火贲"),
+    ("艮", "坤"): (23, "山地剥"),
+    ("坤", "震"): (24, "地雷复"),
+    ("乾", "震"): (25, "天雷无妄"),
+    ("艮", "乾"): (26, "山天大畜"),
+    ("艮", "震"): (27, "山雷颐"),
+    ("兑", "巽"): (28, "泽风大过"),
+    ("坎", "坎"): (29, "坎为水"),
+    ("离", "离"): (30, "离为火"),
+    ("兑", "艮"): (31, "泽山咸"),
+    ("震", "巽"): (32, "雷风恒"),
+    ("乾", "艮"): (33, "天山遁"),
+    ("震", "乾"): (34, "雷天大壮"),
+    ("离", "坤"): (35, "火地晋"),
+    ("坤", "离"): (36, "地火明夷"),
+    ("巽", "离"): (37, "风火家人"),
+    ("离", "兑"): (38, "火泽睽"),
+    ("坎", "艮"): (39, "水山蹇"),
+    ("震", "坎"): (40, "雷水解"),
+    ("艮", "兑"): (41, "山泽损"),
+    ("巽", "震"): (42, "风雷益"),
+    ("兑", "乾"): (43, "泽天夬"),
+    ("乾", "巽"): (44, "天风姤"),
+    ("兑", "坤"): (45, "泽地萃"),
+    ("坤", "巽"): (46, "地风升"),
+    ("兑", "坎"): (47, "泽水困"),
+    ("坎", "巽"): (48, "水风井"),
+    ("兑", "离"): (49, "泽火革"),
+    ("离", "巽"): (50, "火风鼎"),
+    ("震", "震"): (51, "震为雷"),
+    ("艮", "艮"): (52, "艮为山"),
+    ("巽", "艮"): (53, "风山渐"),
+    ("震", "兑"): (54, "雷泽归妹"),
+    ("震", "离"): (55, "雷火丰"),
+    ("离", "艮"): (56, "火山旅"),
+    ("巽", "巽"): (57, "巽为风"),
+    ("兑", "兑"): (58, "兑为泽"),
+    ("巽", "坎"): (59, "风水涣"),
+    ("坎", "兑"): (60, "水泽节"),
+    ("巽", "兑"): (61, "风泽中孚"),
+    ("震", "艮"): (62, "雷山小过"),
+    ("坎", "离"): (63, "水火既济"),
+    ("离", "坎"): (64, "火水未济"),
+}
+
+_ELEMENT_GENERATES = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
+_ELEMENT_CONTROLS = {"木": "土", "土": "水", "水": "火", "火": "金", "金": "木"}
+_VALID_SIX_RELATIVE_ROLES = {"兄弟", "父母", "子孙", "妻财", "官鬼"}
+
+
+def _parse_iso_datetime(raw_value):
+    raw = _clean_text(raw_value)
+    if not raw:
+        return datetime.now(timezone.utc)
+    try:
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(raw)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except Exception:
+        return datetime.now(timezone.utc)
+
+
+def _normalize_coin_face(value):
+    text = _clean_text(value).lower()
+    if text in {"正", "阳", "heads", "head", "h", "1", "true"}:
+        return "正"
+    if text in {"反", "阴", "tails", "tail", "t", "0", "false"}:
+        return "反"
+    return "正" if random.random() >= 0.5 else "反"
+
+
+def _normalize_tosses(raw_tosses):
+    if not isinstance(raw_tosses, list):
+        return None
+    out = []
+    for item in raw_tosses:
+        if isinstance(item, dict):
+            coins = item.get("coins")
+        else:
+            coins = item
+        if not isinstance(coins, list) or len(coins) != 3:
+            return None
+        out.append([_normalize_coin_face(face) for face in coins])
+    if len(out) != 6:
+        return None
+    return out
+
+
+def _coins_to_line(coins, line_no):
+    head_count = sum(1 for coin in coins if coin == "正")
+    total = head_count * 3 + (3 - head_count) * 2
+    line_type_map = {6: "老阴", 7: "少阳", 8: "少阴", 9: "老阳"}
+    line_type = line_type_map.get(total, "少阴")
+    is_yang = total in (7, 9)
+    is_moving = total in (6, 9)
+    changed_is_yang = (not is_yang) if is_moving else is_yang
+    return {
+        "line": int(line_no),  # 1=初爻（最下），6=上爻（最上）
+        "coins": list(coins),
+        "sum": int(total),
+        "type": line_type,
+        "isYang": bool(is_yang),
+        "isMoving": bool(is_moving),
+        "changedIsYang": bool(changed_is_yang),
+    }
+
+
+def _line_symbol(is_yang):
+    return "────────" if is_yang else "────  ────"
+
+
+def _bits_to_trigram(bits):
+    key = "".join("1" if b else "0" for b in bits)
+    return _TRIGRAM_BY_BITS.get(key, {"name": "坤", "element": "土"})
+
+
+def _build_hexagram(lines_yang):
+    lower = _bits_to_trigram(lines_yang[:3])
+    upper = _bits_to_trigram(lines_yang[3:6])
+    number, name = _HEXAGRAM_BY_TRIGRAM.get((upper["name"], lower["name"]), (0, f"{upper['name']}{lower['name']}"))
+    top_down_bits = list(reversed(lines_yang))
+    return {
+        "number": number,
+        "name": name,
+        "upperTrigram": upper["name"],
+        "upperElement": upper["element"],
+        "lowerTrigram": lower["name"],
+        "lowerElement": lower["element"],
+        "linePattern": ["阳" if bit else "阴" for bit in top_down_bits],
+        "lineSymbols": [_line_symbol(bit) for bit in top_down_bits],
+    }
+
+
+def _six_relative_role(day_element, line_element):
+    if not day_element or not line_element:
+        return "兄弟"
+    if day_element == line_element:
+        return "兄弟"
+    if _ELEMENT_GENERATES.get(line_element) == day_element:
+        return "父母"
+    if _ELEMENT_GENERATES.get(day_element) == line_element:
+        return "子孙"
+    if _ELEMENT_CONTROLS.get(day_element) == line_element:
+        return "妻财"
+    if _ELEMENT_CONTROLS.get(line_element) == day_element:
+        return "官鬼"
+    return "兄弟"
+
+
+def _build_six_relatives(lines, day_gan, primary_hexagram):
+    day_element = _GAN_WU_XING.get(day_gan, "")
+    upper_element = primary_hexagram.get("upperElement", "")
+    lower_element = primary_hexagram.get("lowerElement", "")
+    result = []
+    for line in lines:
+        line_no = int(line.get("line", 0))
+        line_element = lower_element if line_no <= 3 else upper_element
+        role = _six_relative_role(day_element, line_element)
+        result.append(
+            {
+                "line": line_no,
+                "role": role,
+                "element": line_element,
+                "yinYang": "阳" if line.get("isYang") else "阴",
+                "moving": bool(line.get("isMoving")),
+                "note": "",
+            }
+        )
+    result.sort(key=lambda item: item["line"], reverse=True)
+    return result
+
+
+def _merge_six_relatives(base_items, llm_items):
+    if not isinstance(base_items, list):
+        return []
+    if not isinstance(llm_items, list):
+        return base_items
+
+    llm_map = {}
+    for item in llm_items:
+        if not isinstance(item, dict):
+            continue
+        line_no = item.get("line")
+        try:
+            line_no = int(line_no)
+        except (TypeError, ValueError):
+            continue
+        llm_map[line_no] = item
+
+    merged = []
+    for base in base_items:
+        line_no = int(base.get("line", 0))
+        llm = llm_map.get(line_no, {})
+        role = _clean_text(llm.get("role"))
+        note = _clean_text(llm.get("note"))
+        updated = dict(base)
+        if role in _VALID_SIX_RELATIVE_ROLES:
+            updated["role"] = role
+        if note:
+            updated["note"] = note
+        merged.append(updated)
+    return merged
+
+
+def build_liuyao_prompt(question, gan_zhi, primary_hexagram, changed_hexagram, lines, six_relatives):
+    line_text = []
+    for line in sorted(lines, key=lambda item: item["line"], reverse=True):
+        marker = "动" if line.get("isMoving") else "静"
+        line_text.append(
+            f"- 第{line['line']}爻：{line['type']}（{''.join(line['coins'])}，和值{line['sum']}，{marker}）"
+        )
+
+    relative_text = []
+    for item in six_relatives:
+        relative_text.append(
+            f"- 第{item['line']}爻：{item['role']}（五行{item['element']}，{item['yinYang']}爻）"
+        )
+
+    return (
+        "你是资深六爻占断师。请依据下列已确定的排卦信息，给出结构化解读。\n"
+        "仅输出严格 JSON，不要输出任何解释文字、不要 markdown。\n"
+        "JSON 格式：\n"
+        "{\"conclusion\":\"吉|平|凶\",\"summary\":\"...\",\"fiveElements\":\"...\",\"advice\":\"...\","
+        "\"sixRelatives\":[{\"line\":6,\"role\":\"父母|兄弟|子孙|妻财|官鬼\",\"note\":\"...\"}]}\n"
+        "要求：\n"
+        "- summary 40~90 字，先给结论导向。\n"
+        "- fiveElements 120~220 字，围绕旺衰、生克、动爻影响。\n"
+        "- advice 80~160 字，给可执行建议。\n"
+        "- sixRelatives 必须 6 条，line 用 6 到 1。\n"
+        "- 保持语言专业但简洁。\n\n"
+        f"用户问题：{question}\n"
+        f"起卦干支：年{gan_zhi['year']} 月{gan_zhi['month']} 日{gan_zhi['day']} 时{gan_zhi['hour']}\n"
+        f"农历：{gan_zhi['lunarLabel']}\n"
+        f"本卦：{primary_hexagram['name']}（{primary_hexagram['upperTrigram']}上{primary_hexagram['lowerTrigram']}下）\n"
+        f"变卦：{changed_hexagram['name']}（{changed_hexagram['upperTrigram']}上{changed_hexagram['lowerTrigram']}下）\n"
+        "六爻结果（上爻到初爻）：\n"
+        + "\n".join(line_text)
+        + "\n六亲基础排布（上爻到初爻）：\n"
+        + "\n".join(relative_text)
+    )
+
+
+def parse_liuyao_response(text):
+    if not text:
+        return None
+    raw = text.strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        snippet = raw[start:end + 1]
+        try:
+            return json.loads(snippet)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _default_liuyao_analysis(question, primary_hexagram, changed_hexagram, moving_lines):
+    moving_count = len(moving_lines)
+    if moving_count <= 1:
+        conclusion = "平"
+    elif moving_count <= 3:
+        conclusion = "吉"
+    else:
+        conclusion = "凶"
+    summary = (
+        f"此卦围绕“{question}”显示为{conclusion}势，"
+        f"本卦{primary_hexagram['name']}转{changed_hexagram['name']}，"
+        "宜顺势而行，避免急进。"
+    )
+    five_elements = (
+        "起卦以当下干支为时空气机，动爻代表事件中的变化节点。"
+        "本卦看现状根基，变卦看后续趋势；动爻越多，外部扰动越大。"
+        "建议先稳住核心资源，再根据变化节奏逐步推进。"
+    )
+    advice = (
+        "先确定一个可执行的小目标并在三日内落地。"
+        "若中途出现反复，以既定节奏为主，不轻易改方向。"
+        "涉及合作与承诺时，先书面确认关键条件。"
+    )
+    return {
+        "conclusion": conclusion,
+        "summary": summary,
+        "fiveElements": five_elements,
+        "advice": advice,
+        "sixRelatives": [],
+    }
+
+
+def fetch_one_thing_divination(profile_id, divination_date):
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT question, started_at,
+                       ganzhi_year, ganzhi_month, ganzhi_day, ganzhi_hour, lunar_label,
+                       tosses, lines, primary_hexagram, changed_hexagram, moving_lines,
+                       conclusion, summary, five_elements, advice, six_relatives
+                FROM one_thing_divinations
+                WHERE profile_id = %s AND divination_date = %s
+                """,
+                (str(profile_id), divination_date),
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    started_at = row.get("started_at")
+    started_at_iso = started_at.isoformat() if started_at else ""
+    return {
+        "date": str(divination_date),
+        "question": row.get("question", ""),
+        "startedAt": started_at_iso,
+        "ganZhi": {
+            "year": row.get("ganzhi_year", ""),
+            "month": row.get("ganzhi_month", ""),
+            "day": row.get("ganzhi_day", ""),
+            "hour": row.get("ganzhi_hour", ""),
+            "lunarLabel": row.get("lunar_label", ""),
+        },
+        "tosses": row.get("tosses") or [],
+        "lines": row.get("lines") or [],
+        "hexagram": {
+            "primary": row.get("primary_hexagram") or {},
+            "changed": row.get("changed_hexagram") or {},
+            "movingLines": row.get("moving_lines") or [],
+        },
+        "analysis": {
+            "conclusion": row.get("conclusion", ""),
+            "summary": row.get("summary", ""),
+            "fiveElements": row.get("five_elements", ""),
+            "advice": row.get("advice", ""),
+            "sixRelatives": row.get("six_relatives") or [],
+        },
+    }
+
+
 def fetch_draw(profile_id, draw_date):
     with get_db_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -982,6 +1386,173 @@ def create_today_draw():
         return jsonify(result)
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": str(exc)}), 500
+
+
+def _resolve_profile_zone(profile):
+    timezone_id = _clean_text((profile or {}).get("timezoneId")) or "Asia/Shanghai"
+    try:
+        return ZoneInfo(timezone_id)
+    except Exception:
+        return ZoneInfo("Asia/Shanghai")
+
+
+def _resolve_profile_today(profile):
+    zone = _resolve_profile_zone(profile)
+    return datetime.now(zone).date()
+
+
+@app.get("/one-thing/today")
+def get_today_one_thing():
+    profile_id = request.args.get("profile_id") or request.args.get("profileId")
+    if not profile_id:
+        return jsonify({"error": "profile_id required"}), 400
+    profile = fetch_profile(profile_id)
+    if not profile:
+        return jsonify({"error": "profile not found"}), 404
+    today = _resolve_profile_today(profile)
+    existing = fetch_one_thing_divination(profile_id, today)
+    if not existing:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(existing)
+
+
+@app.post("/one-thing/cast")
+def cast_one_thing():
+    payload = request.get_json(silent=True) or {}
+    profile_id = payload.get("profileId") or payload.get("profile_id")
+    question = _clean_text(payload.get("question"))
+    tosses = _normalize_tosses(payload.get("tosses"))
+    if not profile_id:
+        return jsonify({"error": "profileId required"}), 400
+    if not question:
+        return jsonify({"error": "question required"}), 400
+    if tosses is None:
+        return jsonify({"error": "tosses invalid, expected 6 entries x 3 coins"}), 400
+
+    profile = fetch_profile(profile_id)
+    if not profile:
+        return jsonify({"error": "profile not found"}), 404
+
+    zone = _resolve_profile_zone(profile)
+    started_at = _parse_iso_datetime(payload.get("startedAt"))
+    started_local = started_at.astimezone(zone)
+    divination_date = started_local.date()
+    existing = fetch_one_thing_divination(profile_id, divination_date)
+    if existing:
+        return jsonify(existing)
+
+    try:
+        from lunar_python import Solar
+    except ImportError:
+        return jsonify({"error": "lunar_python unavailable"}), 500
+
+    solar = Solar.fromYmdHms(
+        started_local.year,
+        started_local.month,
+        started_local.day,
+        started_local.hour,
+        started_local.minute,
+        started_local.second,
+    )
+    lunar = solar.getLunar()
+    gan_zhi = {
+        "year": lunar.getYearInGanZhi(),
+        "month": lunar.getMonthInGanZhi(),
+        "day": lunar.getDayInGanZhi(),
+        "hour": lunar.getTimeInGanZhi(),
+        "lunarLabel": lunar.toString() if hasattr(lunar, "toString") else "",
+    }
+
+    lines = [_coins_to_line(coins, i + 1) for i, coins in enumerate(tosses)]
+    primary_bits = [bool(item["isYang"]) for item in lines]
+    changed_bits = [bool(item["changedIsYang"]) for item in lines]
+    primary_hexagram = _build_hexagram(primary_bits)
+    changed_hexagram = _build_hexagram(changed_bits)
+    moving_lines = [int(item["line"]) for item in lines if item.get("isMoving")]
+    day_gan = gan_zhi["day"][0] if gan_zhi.get("day") else ""
+    base_six_relatives = _build_six_relatives(lines, day_gan, primary_hexagram)
+
+    llm_parsed = None
+    try:
+        prompt = build_liuyao_prompt(
+            question=question,
+            gan_zhi=gan_zhi,
+            primary_hexagram=primary_hexagram,
+            changed_hexagram=changed_hexagram,
+            lines=lines,
+            six_relatives=base_six_relatives,
+        )
+        llm_raw = spark_chat(
+            [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": "请输出六爻解读 JSON。"},
+            ]
+        )
+        llm_parsed = parse_liuyao_response(llm_raw)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[one_thing] llm parse fallback: {exc}")
+
+    fallback_analysis = _default_liuyao_analysis(
+        question=question,
+        primary_hexagram=primary_hexagram,
+        changed_hexagram=changed_hexagram,
+        moving_lines=moving_lines,
+    )
+    if not isinstance(llm_parsed, dict):
+        llm_parsed = fallback_analysis
+
+    conclusion = _clean_text(llm_parsed.get("conclusion"))
+    if conclusion not in {"吉", "平", "凶"}:
+        conclusion = fallback_analysis["conclusion"]
+    summary = _clean_text(llm_parsed.get("summary")) or fallback_analysis["summary"]
+    five_elements = _clean_text(llm_parsed.get("fiveElements")) or fallback_analysis["fiveElements"]
+    advice = _clean_text(llm_parsed.get("advice")) or fallback_analysis["advice"]
+    six_relatives = _merge_six_relatives(base_six_relatives, llm_parsed.get("sixRelatives"))
+
+    for item in six_relatives:
+        if not _clean_text(item.get("note")):
+            item["note"] = f"此爻以{item.get('role', '兄弟')}象为主，宜结合问事场景取象。"
+
+    with get_db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO one_thing_divinations (
+                    profile_id, divination_date, question, started_at,
+                    ganzhi_year, ganzhi_month, ganzhi_day, ganzhi_hour, lunar_label,
+                    tosses, lines, primary_hexagram, changed_hexagram, moving_lines,
+                    conclusion, summary, five_elements, advice, six_relatives
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (profile_id, divination_date) DO NOTHING
+                """,
+                (
+                    str(profile_id),
+                    divination_date,
+                    question,
+                    started_local,
+                    gan_zhi["year"],
+                    gan_zhi["month"],
+                    gan_zhi["day"],
+                    gan_zhi["hour"],
+                    gan_zhi["lunarLabel"],
+                    psycopg2.extras.Json(tosses),
+                    psycopg2.extras.Json(lines),
+                    psycopg2.extras.Json(primary_hexagram),
+                    psycopg2.extras.Json(changed_hexagram),
+                    psycopg2.extras.Json(moving_lines),
+                    conclusion,
+                    summary,
+                    five_elements,
+                    advice,
+                    psycopg2.extras.Json(six_relatives),
+                ),
+            )
+
+    stored = fetch_one_thing_divination(profile_id, divination_date)
+    if not stored:
+        return jsonify({"error": "failed to persist divination"}), 500
+    return jsonify(stored)
 
 
 def build_chart_text(solar_year, solar_month, solar_day, solar_hour, solar_minute, longitude, gender=""):

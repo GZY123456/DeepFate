@@ -133,7 +133,7 @@ struct HomeView: View {
             .buttonStyle(.plain)
 
             NavigationLink {
-                OneThingDrawView()
+                OneThingDivinationView()
             } label: {
                 VStack(spacing: 10) {
                     Image(systemName: "dollarsign.circle")
