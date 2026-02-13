@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// 上下可拖动分割布局：上方为 3D 模型，下方为聊天窗口
+/// 上下可拖动分割布局：背景固定全屏，聊天窗口在上层可拖动
 struct DraggableChatLayout<ModelContent: View, ChatContent: View>: View {
     /// 聊天区域占总高度的比例（0.0 ~ 1.0）
     @Binding var chatRatio: CGFloat
-    /// 上方区域内容（3D 模型）
+    /// 背景内容（固定全屏，不随聊天框移动）
     let modelContent: () -> ModelContent
     /// 下方区域内容（聊天）
     let chatContent: () -> ChatContent
@@ -23,15 +23,15 @@ struct DraggableChatLayout<ModelContent: View, ChatContent: View>: View {
         GeometryReader { geometry in
             let totalHeight = geometry.size.height
             let chatHeight = totalHeight * chatRatio
-            let modelHeight = totalHeight - chatHeight
 
-            VStack(spacing: 0) {
-                // 上方：3D 模型区域
+            ZStack(alignment: .bottom) {
+                // 背景：固定全屏，不随聊天框移动
                 modelContent()
-                    .frame(height: modelHeight)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
                     .clipped()
+                    .ignoresSafeArea()
 
-                // 下方：拖动手柄 + 聊天窗口
+                // 上层：可拖动的聊天窗口
                 VStack(spacing: 0) {
                     // 拖动手柄
                     dragHandle
