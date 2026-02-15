@@ -4,11 +4,15 @@ import SwiftUI
 /// 用于从命理详批等页面跳转到咨询页并携带待发送内容
 @MainActor
 final class ConsultRouter: ObservableObject {
+    /// 实际发往 API 的提示词
     @Published var pendingChartPrompt: String?
+    /// 界面展示用的短文案（若不为空则只展示此项，不展示完整 prompt）
+    @Published var pendingChartDisplayText: String?
     @Published var switchToConsultTab: Bool = false
 
     func askAI(withChartText chartText: String) {
         let prompt = "请根据以下排盘信息进行命理分析：\n\n\(chartText)"
+        pendingChartDisplayText = "帮我分析一下命盘结果"
         pendingChartPrompt = prompt
         switchToConsultTab = true
     }
@@ -44,6 +48,7 @@ final class ConsultRouter: ObservableObject {
         - 解读：\(result.interpretation)
         - 建议：\(result.advice)
         """
+        pendingChartDisplayText = "帮我分析一下今日抽卡结果"
         pendingChartPrompt = prompt
         switchToConsultTab = true
     }
@@ -95,12 +100,14 @@ final class ConsultRouter: ObservableObject {
         \(sixRelativesText)
         """
 
+        pendingChartDisplayText = "帮我分析一下这次占卜的结果"
         pendingChartPrompt = prompt
         switchToConsultTab = true
     }
 
     func clearPendingChart() {
         pendingChartPrompt = nil
+        pendingChartDisplayText = nil
     }
 
     private func lineName(_ line: Int) -> String {

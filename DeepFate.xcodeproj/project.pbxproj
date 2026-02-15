@@ -30,6 +30,7 @@
 		84167ED665754EB811D681D3 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F708A106987E1C83D9DA3917 /* HomeView.swift */; };
 		8894368E4D148E69A8D82F0E /* FortuneChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90E09CE8CCC9899BACC6C111 /* FortuneChartView.swift */; };
 		8C1B29D9A60FB4B81ACB1B3F /* ArchiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE1E2691C39EB850EBB42887 /* ArchiveView.swift */; };
+		92042A4FFA5D485A916F74E2 /* FaceRitualCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA076B52BEF033B868EB42D /* FaceRitualCaptureView.swift */; };
 		9B5DF8E3AC81844F9E482120 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D21ACF4FBEA1FBFDA646CA2 /* MainView.swift */; };
 		9D794C82D645FBBCB891382B /* DraggableChatLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42FFCD173882F28D6AB4D195 /* DraggableChatLayout.swift */; };
 		A0EF070D65591B40B59682CF /* ImagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8757C1E8730A73F4A249835C /* ImagePicker.swift */; };
@@ -94,6 +95,7 @@
 		E4A492480412813C3242D314 /* ConsultTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsultTheme.swift; sourceTree = "<group>"; };
 		EFDA4FD9A648177B183EFFA0 /* ConsultRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsultRouter.swift; sourceTree = "<group>"; };
 		F708A106987E1C83D9DA3917 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		FFA076B52BEF033B868EB42D /* FaceRitualCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceRitualCaptureView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -162,6 +164,7 @@
 				9B801E73C6A2C43ADF6A5A70 /* CreateProfileSheet.swift */,
 				42FFCD173882F28D6AB4D195 /* DraggableChatLayout.swift */,
 				C51D4B2E5240ED8A8AD073EC /* DrawResultView.swift */,
+				FFA076B52BEF033B868EB42D /* FaceRitualCaptureView.swift */,
 				90E09CE8CCC9899BACC6C111 /* FortuneChartView.swift */,
 				F708A106987E1C83D9DA3917 /* HomeView.swift */,
 				8757C1E8730A73F4A249835C /* ImagePicker.swift */,
@@ -292,6 +295,7 @@
 				5B46C8091F633396DCAB5074 /* DrawClient.swift in Sources */,
 				A8072D8EDCF892CEA1DC54BC /* DrawModels.swift in Sources */,
 				34F48030E67942DECD8B9BD1 /* DrawResultView.swift in Sources */,
+				92042A4FFA5D485A916F74E2 /* FaceRitualCaptureView.swift in Sources */,
 				8894368E4D148E69A8D82F0E /* FortuneChartView.swift in Sources */,
 				84167ED665754EB811D681D3 /* HomeView.swift in Sources */,
 				A0EF070D65591B40B59682CF /* ImagePicker.swift in Sources */,

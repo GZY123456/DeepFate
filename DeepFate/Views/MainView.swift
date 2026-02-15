@@ -152,10 +152,10 @@ struct MainView: View {
             syncCurrentChatGreetingToTianshi(selectedTianshiId)
         }
         .onChange(of: consultRouter.pendingChartPrompt) { _, newValue in
-            if let prompt = newValue, !prompt.isEmpty {
-                sendUserMessage(prompt)
-                consultRouter.clearPendingChart()
-            }
+            guard let prompt = newValue, !prompt.isEmpty else { return }
+            let displayText = consultRouter.pendingChartDisplayText
+            sendUserMessage(prompt, displayText: displayText)
+            consultRouter.clearPendingChart()
         }
         .onChange(of: selectedTianshiId) { _, newId in
             syncCurrentChatGreetingToTianshi(newId)
@@ -480,24 +480,30 @@ struct MainView: View {
     }
 
     private func handlePendingPromptIfNeeded() {
-        if let prompt = consultRouter.pendingChartPrompt, !prompt.isEmpty {
-            sendUserMessage(prompt)
-            consultRouter.clearPendingChart()
-        }
+        guard let prompt = consultRouter.pendingChartPrompt, !prompt.isEmpty else { return }
+        let displayText = consultRouter.pendingChartDisplayText
+        sendUserMessage(prompt, displayText: displayText)
+        consultRouter.clearPendingChart()
     }
 
-    private func sendUserMessage(_ content: String, replaceAssistantId: UUID? = nil) {
+    private func sendUserMessage(_ content: String, displayText: String? = nil, replaceAssistantId: UUID? = nil) {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard !isSending else { return }
-        let userMessage = ChatMessage(text: trimmed, isUser: true, canRetry: false)
+        let showText = displayText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? trimmed
+        let userMessage = ChatMessage(
+            text: showText,
+            apiContent: displayText != nil ? trimmed : nil,
+            isUser: true,
+            canRetry: false
+        )
         appendMessage(userMessage)
         if let index = currentChatIndex {
             chats[index].lastMessageAt = Date()
         }
         lastChatIdString = currentChatId.uuidString
-        sendChat(for: userMessage.id, content: trimmed, replaceAssistantId: replaceAssistantId)
-        updateTitleIfNeeded(firstMessage: trimmed, chatId: currentChatId)
+        sendChat(for: userMessage.id, content: trimmed, displayText: displayText, replaceAssistantId: replaceAssistantId)
+        updateTitleIfNeeded(firstMessage: showText, chatId: currentChatId)
     }
 
     private func retryMessage(_ message: ChatMessage) {
@@ -507,7 +513,8 @@ struct MainView: View {
            let msgIndex = chats[chatIndex].messages.firstIndex(where: { $0.id == message.id }) {
             chats[chatIndex].messages[msgIndex].canRetry = false
         }
-        sendChat(for: message.id, content: message.text, replaceAssistantId: nil)
+        let contentToSend = message.apiContent ?? message.text
+        sendChat(for: message.id, content: contentToSend, displayText: message.apiContent != nil ? message.text : nil, replaceAssistantId: nil)
     }
 
     private func stopSending() {
@@ -566,7 +573,7 @@ struct MainView: View {
         speechManager.toggleSpeak(messageId: message.id, text: message.text)
     }
 
-    private func sendChat(for userMessageId: UUID, content: String, replaceAssistantId: UUID?) {
+    private func sendChat(for userMessageId: UUID, content: String, displayText: String? = nil, replaceAssistantId: UUID?) {
         let assistantId = replaceAssistantId ?? UUID()
         if let replaceAssistantId,
            let chatIndex = currentChatIndex,
@@ -624,7 +631,7 @@ struct MainView: View {
                        let msgIndex = chats[chatIndex].messages.firstIndex(where: { $0.id == userMessageId }) {
                         chats[chatIndex].messages[msgIndex].canRetry = true
                     } else {
-                        appendMessage(ChatMessage(text: content, isUser: true, canRetry: true))
+                        appendMessage(ChatMessage(text: displayText ?? content, apiContent: displayText != nil ? content : nil, isUser: true, canRetry: true))
                     }
                     if currentMessages.last?.text != "请求失败：\(error.localizedDescription)" {
                         appendMessage(ChatMessage(text: "请求失败：\(error.localizedDescription)", isUser: false))

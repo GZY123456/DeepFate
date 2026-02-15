@@ -167,7 +167,8 @@ private struct BackendTitleResponse: Decodable {
 
 extension ChatMessage {
     var asBackendMessage: BackendMessage {
-        BackendMessage(role: isUser ? "user" : "assistant", content: text)
+        let content = (isUser && apiContent != nil) ? (apiContent ?? text) : text
+        return BackendMessage(role: isUser ? "user" : "assistant", content: content)
     }
 }
 

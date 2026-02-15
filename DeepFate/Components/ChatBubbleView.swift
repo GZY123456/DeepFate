@@ -1,4 +1,5 @@
 import SwiftUI
+import MarkdownUI
 
 struct ChatBubbleView: View {
     let message: ChatMessage
@@ -76,8 +77,22 @@ struct ChatBubbleView: View {
     }
 
     private func formattedText(_ text: String, color: Color) -> some View {
-        Text(preprocessedMarkdown(text))
-            .foregroundStyle(color)
+        Markdown(preprocessedMarkdown(text))
+            .markdownTheme(markdownTheme(primary: color, accent: theme.accent))
+    }
+
+    private func markdownTheme(primary: Color, accent: Color) -> MarkdownUI.Theme {
+        MarkdownUI.Theme()
+            .text {
+                ForegroundColor(primary)
+            }
+            .code {
+                ForegroundColor(primary)
+                BackgroundColor(primary.opacity(0.12))
+            }
+            .link {
+                ForegroundColor(accent)
+            }
     }
 
     private var actionBar: some View {

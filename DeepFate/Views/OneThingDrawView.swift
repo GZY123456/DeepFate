@@ -1,6 +1,18 @@
 import SwiftUI
 import UIKit
 
+private enum DailyDrawRitual: String {
+    case sigil
+    case face
+
+    var title: String {
+        switch self {
+        case .sigil: return "画符启封"
+        case .face: return "相面抽卡"
+        }
+    }
+}
+
 struct OneThingDrawView: View {
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var consultRouter: ConsultRouter
@@ -18,6 +30,7 @@ struct OneThingDrawView: View {
     @State private var isAskingAI = false
     @State private var askError: String?
     @State private var showProfilePicker = false
+    @State private var ritual: DailyDrawRitual = .sigil
 
     private let drawClient = DrawClient()
     private let chartClient = ChartClient()
@@ -47,6 +60,12 @@ struct OneThingDrawView: View {
         }
         .onAppear {
             guard let profile = activeProfile else { return }
+            resolveRitual(for: profile)
+            Task { await checkToday(for: profile) }
+        }
+        .onChange(of: profileStore.activeProfileID) { _, _ in
+            guard let profile = activeProfile else { return }
+            resolveRitual(for: profile)
             Task { await checkToday(for: profile) }
         }
     }
@@ -127,18 +146,39 @@ struct OneThingDrawView: View {
                     .padding(.horizontal, 20)
             }
 
-            HStack(spacing: 12) {
-                Button("重画") {
-                    strokes = []
-                    currentStroke = []
-                }
-                .buttonStyle(.bordered)
+            VStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    Button("重画") {
+                        strokes = []
+                        currentStroke = []
+                    }
+                    .buttonStyle(.bordered)
 
-                Button(isLoading ? "抽取中..." : "完成符咒，抽卡") {
-                    Task { await generateResult(for: profile) }
+                    Button(isLoading ? "抽取中..." : "完成符咒，抽卡") {
+                        Task { await generateResult(for: profile, withReveal: true) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isLoading || !hasDrawn)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(isLoading || !hasDrawn)
+                NavigationLink {
+                    if let profile = activeProfile {
+                        FaceRitualCaptureView(
+                            onSuccess: {
+                                Task { await generateResult(for: profile, withReveal: false) }
+                            },
+                            onUseRandomFallback: {
+                                Task { await generateResult(for: profile, withReveal: false) }
+                            },
+                            onSwitchUser: {
+                                showProfilePicker = true
+                            }
+                        )
+                    }
+                } label: {
+                    Text("测试相面")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color(red: 0.45, green: 0.32, blue: 0.58))
+                }
             }
             .padding(.bottom, 20)
         }
@@ -183,6 +223,7 @@ struct OneThingDrawView: View {
                     profileStore.setActive(profile.id)
                     drawResult = nil
                     isRevealing = false
+                    resolveRitual(for: profile)
                     showProfilePicker = false
                     Task { await checkToday(for: profile) }
                 } label: {
@@ -219,17 +260,23 @@ struct OneThingDrawView: View {
         }
     }
 
-    private func generateResult(for profile: UserProfile) async {
+    private func generateResult(for profile: UserProfile, withReveal: Bool) async {
         errorMessage = nil
         isLoading = true
-        withAnimation(.easeInOut(duration: 0.35)) {
-            isRevealing = true
+        if withReveal {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                isRevealing = true
+            }
+            startRevealPulse()
         }
-        startRevealPulse()
         do {
             let result = try await drawClient.generateToday(profileId: profile.id)
             await MainActor.run {
-                triggerRevealFinish()
+                if withReveal {
+                    triggerRevealFinish()
+                } else {
+                    isRevealing = false
+                }
                 withAnimation(.easeInOut(duration: 0.35)) {
                     drawResult = result
                 }
@@ -239,11 +286,34 @@ struct OneThingDrawView: View {
             await MainActor.run {
                 errorMessage = error.localizedDescription
                 isLoading = false
-                withAnimation(.easeInOut(duration: 0.2)) {
+                if withReveal {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isRevealing = false
+                    }
+                } else {
                     isRevealing = false
                 }
             }
         }
+    }
+
+    private func resolveRitual(for profile: UserProfile) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone(identifier: profile.location.timezoneID) ?? .current
+        let dayText = formatter.string(from: Date())
+        let key = "\(dayText)-\(profile.id.uuidString)"
+        var hash = 5381
+        for scalar in key.unicodeScalars {
+            hash = ((hash << 5) &+ hash) &+ Int(scalar.value)
+        }
+        ritual = abs(hash) % 2 == 0 ? .sigil : .face
+        strokes = []
+        currentStroke = []
+    }
+
+    private var currentRitual: DailyDrawRitual {
+        ritual
     }
 
     private func sendAskAI(drawResult: DrawResult, profile: UserProfile) async {

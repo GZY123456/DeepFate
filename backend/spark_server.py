@@ -248,6 +248,12 @@ def create_signed_url():
     return f"{SPARK_URL}?{query}"
 
 
+@app.get("/health")
+def health():
+    """健康检查：返回 200 表示服务在运行。"""
+    return jsonify({"status": "ok"})
+
+
 @app.get("/spark/handshake")
 def handshake():
     ws_url = create_signed_url()
