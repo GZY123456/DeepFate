@@ -32,6 +32,7 @@ struct FaceRitualCaptureView: View {
     var onSwitchUser: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var profileStore: ProfileStore
     @StateObject private var detector = FaceRitualDetector()
 
     @State private var phase: FaceRitualPhase = .ready
@@ -88,7 +89,7 @@ struct FaceRitualCaptureView: View {
             timerTask?.cancel()
             detector.stop()
         }
-        .onChange(of: detector.completedStepCount) { newValue in
+        .onChange(of: detector.completedStepCount) { _, newValue in
             if newValue >= FaceRitualStep.allCases.count {
                 recognitionFinished()
             }
@@ -134,65 +135,105 @@ struct FaceRitualCaptureView: View {
         .toolbar(.hidden, for: .navigationBar)
     }
 
+    private var readyProfileName: String {
+        guard let id = profileStore.activeProfileID,
+              let profile = profileStore.profiles.first(where: { $0.id == id }) else {
+            return "档案"
+        }
+        let trimmed = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "档案" : String(trimmed.prefix(4))
+    }
+
     private var readyOnlyView: some View {
-        GeometryReader { geo in
-            let topInset = geo.safeAreaInsets.top
-            let bottomInset = geo.safeAreaInsets.bottom
-            ZStack {
-                Image("FaceRitualBackground")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .blur(radius: 6)
-                    .opacity(0.95)
-                    .overlay(Color.pink.opacity(0.16))
-                    .clipped()
-                    .ignoresSafeArea()
-                VStack(spacing: 0) {
-                    HStack {
-                        Button {
-                            dismiss()
-                        } label: {
-                            Text("返回首页")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(deepAmber)
-                        }
-                        Spacer()
-                        Button {
-                            dismiss()
-                            onSwitchUser?()
-                        } label: {
-                            Text("切换用户")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(deepAmber)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, max(12, topInset))
-                    .padding(.bottom, 8)
-                    Spacer(minLength: 0)
+        ZStack {
+            Image("FaceRitualBackground")
+                .resizable()
+                .scaledToFill()
+                .blur(radius: 4)
+                .overlay(Color(red: 1.0, green: 0.80, blue: 0.86).opacity(0.48))
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                HStack {
                     Button {
-                        beginFlow()
+                        dismiss()
                     } label: {
-                        Text("开始相面识别")
-                            .font(.system(size: 20, weight: .semibold, design: .serif))
-                            .foregroundStyle(.white)
-                            .frame(width: min(200, geo.size.width * 0.5))
-                            .frame(height: 46)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(coral)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                            .stroke(Color.white.opacity(0.35), lineWidth: 1)
-                                    )
-                                    .shadow(color: coral.opacity(0.4), radius: 8, x: 0, y: 4)
-                            )
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 18, weight: .medium))
+                            Text("返回首页")
+                                .font(.system(size: 15, weight: .medium))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
                     }
-                    .padding(.bottom, max(48, bottomInset + 24))
+                    Spacer()
+                    Button {
+                        dismiss()
+                        onSwitchUser?()
+                    } label: {
+                        HStack(spacing: 6) {
+                            ProfileAvatarView(name: readyProfileName, size: 22)
+                            Text(readyProfileName)
+                                .font(.system(size: 12, weight: .medium))
+                                .lineLimit(1)
+                                .foregroundStyle(.white)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.ultraThinMaterial, in: Capsule())
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                GeometryReader { geo in
+                    let mirrorSize = min(geo.size.width * 0.82, 320)
+                    VStack(spacing: -12) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.white.opacity(0.15))
+                                .frame(width: mirrorSize * 0.56, height: mirrorSize * 0.56)
+                            Image("BaguaMirror")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: mirrorSize, height: mirrorSize)
+                        }
+
+                        Image("CloudDivider")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: geo.size.width)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
+                }
+                .frame(height: 370)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    beginFlow()
+                } label: {
+                    Text("开始相面识别")
+                        .font(.system(size: 20, weight: .semibold, design: .serif))
+                        .foregroundStyle(.white)
+                        .frame(width: 200)
+                        .frame(height: 46)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(coral)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(Color.white.opacity(0.35), lineWidth: 1)
+                                )
+                                .shadow(color: coral.opacity(0.4), radius: 8, x: 0, y: 4)
+                        )
+                }
+                .padding(.bottom, 24)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
         }
     }
 
@@ -272,19 +313,13 @@ struct FaceRitualCaptureView: View {
 
     private var mirrorSection: some View {
         GeometryReader { proxy in
-            let size = min(proxy.size.width * 0.88, 380)
+            let size = min(proxy.size.width * 0.82, 320)
+            let cameraSize = size * 0.56
 
             ZStack {
-                BaguaMirrorView(
-                    litCount: detector.completedStepCount,
-                    glow: phase == .recognizing || phase == .activated,
-                    gold: gold
-                )
-                .frame(width: size, height: size)
-
                 Circle()
                     .fill(Color.white.opacity(0.30))
-                    .frame(width: size * 0.60, height: size * 0.60)
+                    .frame(width: cameraSize, height: cameraSize)
                     .overlay(
                         FaceCameraPreviewView(detector: detector)
                             .clipShape(Circle())
@@ -293,15 +328,24 @@ struct FaceRitualCaptureView: View {
                         Circle()
                             .fill(
                                 LinearGradient(
-                                    colors: [Color.white.opacity(0.20), Color.clear, Color.pink.opacity(0.12)],
+                                    colors: [Color.white.opacity(0.15), Color.clear, Color.pink.opacity(0.08)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
                     )
                     .overlay(
-                        Circle().stroke(Color.white.opacity(0.55), lineWidth: 1)
+                        Circle().stroke(Color.white.opacity(0.4), lineWidth: 1)
                     )
+
+                Image("BaguaMirror")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size, height: size)
+                    .shadow(color: gold.opacity(phase == .recognizing || phase == .activated ? 0.5 : 0.2),
+                            radius: phase == .recognizing || phase == .activated ? 16 : 6,
+                            x: 0, y: 4)
+                    .allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -450,7 +494,7 @@ struct FaceRitualCaptureView: View {
             .disabled(phase != .activated)
         }
         .frame(width: 66)
-        .onChange(of: phase) { newValue in
+        .onChange(of: phase) { _, newValue in
             if newValue == .activated {
                 activationPulse = true
             } else {
