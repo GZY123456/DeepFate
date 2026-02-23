@@ -191,26 +191,41 @@ struct FaceRitualCaptureView: View {
 
                 GeometryReader { geo in
                     let mirrorSize = min(geo.size.width * 0.82, 320)
-                    VStack(spacing: -12) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.white.opacity(0.15))
-                                .frame(width: mirrorSize * 0.56, height: mirrorSize * 0.56)
-                            Image("BaguaMirror")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: mirrorSize, height: mirrorSize)
-                        }
-
+                    ZStack(alignment: .bottom) {
                         Image("CloudDivider")
                             .resizable()
                             .scaledToFit()
                             .frame(width: geo.size.width)
+                            .offset(y: 10)
+
+                        VStack(spacing: 0) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.white.opacity(0.15))
+                                    .frame(width: mirrorSize * 0.56, height: mirrorSize * 0.56)
+                                Image("BaguaMirror")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: mirrorSize, height: mirrorSize)
+                            }
+                            .padding(.top, 8)
+                            Spacer(minLength: 0)
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 8)
+                    .frame(width: geo.size.width, height: geo.size.height)
                 }
                 .frame(height: 370)
+
+                HStack(spacing: 0) {
+                    ForEach(0..<5, id: \.self) { _ in
+                        Image("FortuneTag")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .offset(y: -16)
 
                 Spacer(minLength: 0)
 

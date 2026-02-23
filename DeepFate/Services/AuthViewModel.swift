@@ -196,39 +196,43 @@ final class AuthViewModel: ObservableObject {
     }
 
     private func post<T: Decodable>(path: String, body: [String: String]) async throws -> T {
-        guard let url = URL(string: backend.baseURL + path) else {
-            throw URLError(.badURL)
+        try await backend.performRequest { baseURL in
+            guard let url = URL(string: baseURL + path) else {
+                throw URLError(.badURL)
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            guard (200..<300).contains(statusCode) else {
+                let message = String(data: data, encoding: .utf8) ?? "请求失败"
+                throw NSError(domain: "AuthAPI", code: statusCode, userInfo: [NSLocalizedDescriptionKey: message])
+            }
+            return try JSONDecoder().decode(T.self, from: data)
         }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        guard (200..<300).contains(statusCode) else {
-            let message = String(data: data, encoding: .utf8) ?? "请求失败"
-            throw NSError(domain: "AuthAPI", code: statusCode, userInfo: [NSLocalizedDescriptionKey: message])
-        }
-        return try JSONDecoder().decode(T.self, from: data)
     }
 
     private func fetchProfiles(for userId: String) async throws -> [UserProfile] {
-        guard var components = URLComponents(string: backend.baseURL + "/profiles") else {
-            throw URLError(.badURL)
+        try await backend.performRequest { baseURL in
+            guard var components = URLComponents(string: baseURL + "/profiles") else {
+                throw URLError(.badURL)
+            }
+            components.queryItems = [URLQueryItem(name: "user_id", value: userId)]
+            guard let url = components.url else {
+                throw URLError(.badURL)
+            }
+            let (data, response) = try await URLSession.shared.data(from: url)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            guard (200..<300).contains(statusCode) else {
+                let message = String(data: data, encoding: .utf8) ?? "请求失败"
+                throw NSError(domain: "AuthAPI", code: statusCode, userInfo: [NSLocalizedDescriptionKey: message])
+            }
+            let decoder = JSONDecoder()
+            let records = try decoder.decode([BackendProfile].self, from: data)
+            return records.compactMap(mapBackendProfile)
         }
-        components.queryItems = [URLQueryItem(name: "user_id", value: userId)]
-        guard let url = components.url else {
-            throw URLError(.badURL)
-        }
-        let (data, response) = try await URLSession.shared.data(from: url)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        guard (200..<300).contains(statusCode) else {
-            let message = String(data: data, encoding: .utf8) ?? "请求失败"
-            throw NSError(domain: "AuthAPI", code: statusCode, userInfo: [NSLocalizedDescriptionKey: message])
-        }
-        let decoder = JSONDecoder()
-        let records = try decoder.decode([BackendProfile].self, from: data)
-        return records.compactMap(mapBackendProfile)
     }
 
     private func mapBackendProfile(_ record: BackendProfile) -> UserProfile? {

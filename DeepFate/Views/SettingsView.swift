@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("isLoggedIn") private var isLoggedIn = false
     @AppStorage("loginName") private var loginName = ""
-    @AppStorage("backendBaseURL") private var backendBaseURL = "http://192.168.0.103:8000"
+    @AppStorage("backendBaseURL") private var backendBaseURL = ""
     @EnvironmentObject private var authViewModel: AuthViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var showFaceIdBind = false
@@ -54,7 +54,7 @@ struct SettingsView: View {
                 }
                 
                 Section("服务") {
-                    TextField("后端服务地址", text: $backendBaseURL)
+                    TextField("后端服务地址（留空自动发现）", text: $backendBaseURL)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                     Button("保存服务地址") {

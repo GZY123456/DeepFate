@@ -32,17 +32,24 @@ final class LocationStore: ObservableObject {
     }
 
     func refresh() async {
-        guard let url = URL(string: backend.baseURL + "/locations") else { return }
         do {
-            let (data, response) = try await session.data(from: url)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                return
+            let decoded: [ProvinceOption] = try await backend.performRequest { baseURL in
+                guard let url = URL(string: baseURL + "/locations") else {
+                    throw URLError(.badURL)
+                }
+                let (data, response) = try await session.data(from: url)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    throw URLError(.badServerResponse)
+                }
+                return try JSONDecoder().decode([ProvinceOption].self, from: data)
             }
-            let decoded = try JSONDecoder().decode([ProvinceOption].self, from: data)
+            guard !decoded.isEmpty else { return }
             await MainActor.run {
                 self.provinces = decoded
             }
-            saveCache(data)
+            if let encoded = try? JSONEncoder().encode(decoded) {
+                saveCache(encoded)
+            }
         } catch {
             // Ignore network errors; keep cached data.
         }

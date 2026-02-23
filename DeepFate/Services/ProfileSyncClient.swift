@@ -13,19 +13,27 @@ final class ProfileSyncClient {
             print("[profiles] skip upsert without userId")
             return
         }
-        guard let url = URL(string: backend.baseURL + "/profiles") else { return }
         let payload = BackendProfilePayload(from: profile, userId: userId)
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = data
-
         Task {
             do {
-                let (_, response) = try await session.data(for: request)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let response: HTTPURLResponse = try await backend.performRequest { baseURL in
+                    guard let url = URL(string: baseURL + "/profiles") else {
+                        throw URLError(.badURL)
+                    }
+                    guard let data = try? JSONEncoder().encode(payload) else {
+                        throw URLError(.badURL)
+                    }
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.httpBody = data
+                    let (_, response) = try await session.data(for: request)
+                    guard let http = response as? HTTPURLResponse else {
+                        throw URLError(.badServerResponse)
+                    }
+                    return http
+                }
+                let status = response.statusCode
                 print("[profiles] upsert status=\(status) id=\(profile.id.uuidString)")
             } catch {
                 print("[profiles] upsert failed id=\(profile.id.uuidString) error=\(error.localizedDescription)")
@@ -42,15 +50,25 @@ final class ProfileSyncClient {
             print("[profiles] skip delete without userId")
             return
         }
-        guard var components = URLComponents(string: backend.baseURL + "/profiles/\(id.uuidString)") else { return }
-        components.queryItems = [URLQueryItem(name: "user_id", value: userId)]
-        guard let url = components.url else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
         Task {
             do {
-                let (_, response) = try await session.data(for: request)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let response: HTTPURLResponse = try await backend.performRequest { baseURL in
+                    guard var components = URLComponents(string: baseURL + "/profiles/\(id.uuidString)") else {
+                        throw URLError(.badURL)
+                    }
+                    components.queryItems = [URLQueryItem(name: "user_id", value: userId)]
+                    guard let url = components.url else {
+                        throw URLError(.badURL)
+                    }
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "DELETE"
+                    let (_, response) = try await session.data(for: request)
+                    guard let http = response as? HTTPURLResponse else {
+                        throw URLError(.badServerResponse)
+                    }
+                    return http
+                }
+                let status = response.statusCode
                 print("[profiles] delete status=\(status) id=\(id.uuidString)")
             } catch {
                 print("[profiles] delete failed id=\(id.uuidString) error=\(error.localizedDescription)")

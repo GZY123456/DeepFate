@@ -37,39 +37,41 @@ final class LocationSearchClient {
         guard !q.isEmpty else { return [] }
         let size = max(1, min(limit, 20))
         do {
-            guard var components = URLComponents(string: backend.baseURL + "/geo/search") else {
-                throw URLError(.badURL)
-            }
-            components.queryItems = [
-                URLQueryItem(name: "q", value: q),
-                URLQueryItem(name: "limit", value: "\(size)")
-            ]
-            guard let url = components.url else {
-                throw URLError(.badURL)
-            }
-            let (data, response) = try await session.data(from: url)
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            guard (200..<300).contains(statusCode) else {
-                let message = String(data: data, encoding: .utf8) ?? "地点检索失败"
-                throw NSError(domain: "LocationSearchClient", code: statusCode, userInfo: [NSLocalizedDescriptionKey: message])
-            }
-            let decoded = try JSONDecoder().decode(GeoSearchResponse.self, from: data)
-            return decoded.items.map { item in
-                GeoLocationSuggestion(
-                    id: "\(item.adcode)-\(item.longitude)-\(item.latitude)-\(item.name)",
-                    name: item.name,
-                    province: item.province,
-                    city: item.city,
-                    district: item.district,
-                    detailAddress: item.detailAddress,
-                    fullAddress: item.fullAddress,
-                    longitude: item.longitude,
-                    latitude: item.latitude,
-                    timezoneID: item.timezoneId,
-                    utcOffsetMinutes: item.utcOffsetMinutes,
-                    source: item.source,
-                    adcode: item.adcode
-                )
+            return try await backend.performRequest { baseURL in
+                guard var components = URLComponents(string: baseURL + "/geo/search") else {
+                    throw URLError(.badURL)
+                }
+                components.queryItems = [
+                    URLQueryItem(name: "q", value: q),
+                    URLQueryItem(name: "limit", value: "\(size)")
+                ]
+                guard let url = components.url else {
+                    throw URLError(.badURL)
+                }
+                let (data, response) = try await session.data(from: url)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                guard (200..<300).contains(statusCode) else {
+                    let message = String(data: data, encoding: .utf8) ?? "地点检索失败"
+                    throw NSError(domain: "LocationSearchClient", code: statusCode, userInfo: [NSLocalizedDescriptionKey: message])
+                }
+                let decoded = try JSONDecoder().decode(GeoSearchResponse.self, from: data)
+                return decoded.items.map { item in
+                    GeoLocationSuggestion(
+                        id: "\(item.adcode)-\(item.longitude)-\(item.latitude)-\(item.name)",
+                        name: item.name,
+                        province: item.province,
+                        city: item.city,
+                        district: item.district,
+                        detailAddress: item.detailAddress,
+                        fullAddress: item.fullAddress,
+                        longitude: item.longitude,
+                        latitude: item.latitude,
+                        timezoneID: item.timezoneId,
+                        utcOffsetMinutes: item.utcOffsetMinutes,
+                        source: item.source,
+                        adcode: item.adcode
+                    )
+                }
             }
         } catch {
             return try await searchViaMapKit(keyword: q, limit: size)
