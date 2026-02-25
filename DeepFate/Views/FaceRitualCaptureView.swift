@@ -28,9 +28,8 @@ private enum FaceRitualStep: Int, CaseIterable {
 
     var icon: String {
         switch self {
-        // 前置摄像头画面镜像：物理左转在画面里显示为向右，故箭头取反
-        case .turnLeft:  return "arrow.right"
-        case .turnRight: return "arrow.left"
+        case .turnLeft:  return "arrow.left"
+        case .turnRight: return "arrow.right"
         case .openMouth: return "arrow.up.and.down"
         }
     }
@@ -1173,11 +1172,11 @@ private final class FaceRitualDetector: NSObject, ObservableObject, ARSessionDel
                 mark(step: .openMouth)
             }
         case FaceRitualStep.turnLeft.rawValue:
-            if yaw > 0.24 {
+            if yaw < -0.24 {   // 用户物理左转 → yaw 为负
                 mark(step: .turnLeft)
             }
         case FaceRitualStep.turnRight.rawValue:
-            if yaw < -0.24 {
+            if yaw > 0.24 {    // 用户物理右转 → yaw 为正
                 mark(step: .turnRight)
             }
         default:
