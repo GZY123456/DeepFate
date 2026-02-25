@@ -164,10 +164,10 @@ struct OneThingDrawView: View {
                     if let profile = activeProfile {
                         FaceRitualCaptureView(
                             onSuccess: {
-                                Task { await generateResult(for: profile, withReveal: false) }
+                                await generateResult(for: profile, withReveal: false)
                             },
                             onUseRandomFallback: {
-                                Task { await generateResult(for: profile, withReveal: false) }
+                                await generateResult(for: profile, withReveal: false)
                             },
                             onSwitchUser: {
                                 showProfilePicker = true

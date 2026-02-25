@@ -10,25 +10,35 @@ private enum FaceRitualPhase {
     case recognizing
     case activated
     case opening
+    case generating  // 抽取结果生成中（等服务端返回后再 dismiss）
 }
 
 private enum FaceRitualStep: Int, CaseIterable {
-    case openMouth
-    case turnLeft
-    case turnRight
+    case turnLeft   // 0 → 第一步
+    case turnRight  // 1 → 第二步
+    case openMouth  // 2 → 第三步
 
     var title: String {
         switch self {
-        case .openMouth: return "张嘴"
-        case .turnLeft: return "左转头"
+        case .turnLeft:  return "左转头"
         case .turnRight: return "右转头"
+        case .openMouth: return "张嘴"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        // 前置摄像头画面镜像：物理左转在画面里显示为向右，故箭头取反
+        case .turnLeft:  return "arrow.right"
+        case .turnRight: return "arrow.left"
+        case .openMouth: return "arrow.up.and.down"
         }
     }
 }
 
 struct FaceRitualCaptureView: View {
-    let onSuccess: () -> Void
-    let onUseRandomFallback: () -> Void
+    let onSuccess: () async -> Void
+    let onUseRandomFallback: () async -> Void
     var onSwitchUser: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
@@ -45,6 +55,7 @@ struct FaceRitualCaptureView: View {
     @State private var activationPulse = false
     @State private var cloudBreath = false
     @State private var crackProgress: CGFloat = 0
+    @State private var hintPulse = false
 
     private let deepAmber = Color(red: 0.40, green: 0.23, blue: 0.10)
     private let warmCard = Color(red: 1.0, green: 0.98, blue: 0.94).opacity(0.86)
@@ -63,19 +74,7 @@ struct FaceRitualCaptureView: View {
             if phase == .ready {
                 readyOnlyView
             } else {
-                ZStack {
-                    backgroundLayer
-                    VStack(spacing: 16) {
-                        topBar
-                        mirrorSection
-                        cloudBridge
-                        fortunePanel
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.top, 10)
-                    .padding(.bottom, 18)
-                }
+                recognitionView
             }
         }
         .onAppear {
@@ -94,10 +93,21 @@ struct FaceRitualCaptureView: View {
                 recognitionFinished()
             }
         }
+        .onChange(of: phase) { _, newPhase in
+            if newPhase == .recognizing {
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                    hintPulse = true
+                }
+            } else {
+                hintPulse = false
+            }
+        }
         .alert("需要相机权限", isPresented: $showPermissionAlert) {
             Button("改为随机抽卡") {
-                dismiss()
-                onUseRandomFallback()
+                Task {
+                    await onUseRandomFallback()
+                    await MainActor.run { dismiss() }
+                }
             }
             Button("取消", role: .cancel) { }
         } message: {
@@ -105,8 +115,10 @@ struct FaceRitualCaptureView: View {
         }
         .alert("设备不支持相面识别", isPresented: $showUnsupportedAlert) {
             Button("改为随机抽卡") {
-                dismiss()
-                onUseRandomFallback()
+                Task {
+                    await onUseRandomFallback()
+                    await MainActor.run { dismiss() }
+                }
             }
             Button("取消", role: .cancel) { }
         } message: {
@@ -145,15 +157,18 @@ struct FaceRitualCaptureView: View {
     }
 
     private var readyOnlyView: some View {
-        ZStack {
+        let pinkFade = Color(red: 1.0, green: 0.82, blue: 0.88)
+
+        return ZStack {
             Image("FaceRitualBackground")
                 .resizable()
                 .scaledToFill()
                 .blur(radius: 4)
-                .overlay(Color(red: 1.0, green: 0.80, blue: 0.86).opacity(0.48))
+                .overlay(pinkFade.opacity(0.48))
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
+                // 顶部导航栏
                 HStack {
                     Button {
                         dismiss()
@@ -189,46 +204,47 @@ struct FaceRitualCaptureView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
 
-                GeometryReader { geo in
-                    let mirrorSize = min(geo.size.width * 0.82, 320)
-                    ZStack(alignment: .bottom) {
-                        Image("CloudDivider")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: geo.size.width)
-                            .offset(y: 10)
+                // 八卦镜（最上层）
+                Image("BaguaMirror")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, -4)
+                    .padding(.top, 14)
+                    .zIndex(2)
 
-                        VStack(spacing: 0) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.white.opacity(0.15))
-                                    .frame(width: mirrorSize * 0.56, height: mirrorSize * 0.56)
-                                Image("BaguaMirror")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: mirrorSize, height: mirrorSize)
-                            }
-                            .padding(.top, 8)
-                            Spacer(minLength: 0)
+                // 云纹（中间层，往上移与镜底重叠更多）
+                Image("CloudDivider")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, -36)
+                    .zIndex(1)
+
+                // 签子区（最底层），整体上移，签子放大
+                let vOffsets: [CGFloat] = [-36, -18, 0, -18, -36]
+                let tagImages = ["FortuneTag", "FortuneTagMarryLuck", "FortuneTagMidLuck", "FortuneTagTransLuck", "FortuneTagLargeLuck"]
+                GeometryReader { geo in
+                    let tagWidth = (geo.size.width - 16) / 5
+                    HStack(alignment: .top, spacing: 0) {
+                        ForEach(0..<5, id: \.self) { i in
+                            Image(tagImages[i])
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: tagWidth)
+                                .offset(y: vOffsets[i])
                         }
                     }
-                    .frame(width: geo.size.width, height: geo.size.height)
+                    .padding(.horizontal, 8)
+                    .frame(width: geo.size.width)
                 }
-                .frame(height: 370)
+                .frame(height: 240)
+                .padding(.top, -28)
+                .zIndex(0)
 
-                HStack(spacing: 0) {
-                    ForEach(0..<5, id: \.self) { _ in
-                        Image("FortuneTag")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .offset(y: -16)
+                Spacer(minLength: 8)
 
-                Spacer(minLength: 0)
-
+                // 开始按钮
                 Button {
                     beginFlow()
                 } label: {
@@ -251,6 +267,267 @@ struct FaceRitualCaptureView: View {
             }
         }
     }
+
+    // MARK: - Recognition View (识别进行中)
+
+    private var recognitionView: some View {
+        let pinkFade = Color(red: 1.0, green: 0.82, blue: 0.88)
+        return ZStack {
+            Image("FaceRitualBackground")
+                .resizable()
+                .scaledToFill()
+                .blur(radius: 4)
+                .overlay(pinkFade.opacity(0.48))
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                recognitionNavBar
+
+                recognitionMirrorSection
+                    .zIndex(2)
+
+                Image("CloudDivider")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, -14)   // 减少重叠，加大间距
+                    .zIndex(1)
+
+                actionHintsColumn
+                    .padding(.top, 4)
+                    .zIndex(0)
+
+                Spacer(minLength: 0)
+
+                drawFortuneButton
+                    .padding(.bottom, 8)
+
+                Text("限时 \(remainingSeconds <= 0 ? 60 : remainingSeconds) 秒，超时可重新识别")
+                    .font(.system(size: 13, weight: .regular, design: .serif))
+                    .foregroundStyle(Color.white.opacity(0.75))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .opacity(phase == .recognizing ? 1 : 0)
+                    .padding(.bottom, 16)
+            }
+        }
+    }
+
+    private var recognitionNavBar: some View {
+        HStack {
+            Button { dismiss() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .medium))
+                    Text("返回首页")
+                        .font(.system(size: 15, weight: .medium))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: Capsule())
+            }
+            Spacer()
+            Button { dismiss(); onSwitchUser?() } label: {
+                HStack(spacing: 6) {
+                    ProfileAvatarView(name: readyProfileName, size: 22)
+                    Text(readyProfileName)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.ultraThinMaterial, in: Capsule())
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    private var recognitionMirrorSection: some View {
+        GeometryReader { proxy in
+            let mirrorSize = min(proxy.size.width * 0.86, 330)
+            let cameraSize = mirrorSize * 0.54   // 稍小一点，确保在透明圆孔范围内
+            ZStack {
+                // 1. 最底层：八卦镜图片
+                Image("BaguaMirror")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: mirrorSize, height: mirrorSize)
+                    .shadow(
+                        color: gold.opacity(phase == .activated ? 0.7 : 0.35),
+                        radius: phase == .activated ? 20 : 10,
+                        x: 0, y: 4
+                    )
+
+                // 2. 最上层：摄像头画面覆盖镜子中心（BaguaMirror 中心是不透明的，需要直接覆盖）
+                FaceCameraPreviewView(detector: detector)
+                    .frame(width: cameraSize, height: cameraSize)
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.5), Color.white.opacity(0.1)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1.5
+                            )
+                    )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(height: 300)
+        .padding(.top, 8)
+    }
+
+    private var actionHintsColumn: some View {
+        VStack(spacing: 10) {
+            ForEach(FaceRitualStep.allCases, id: \.rawValue) { step in
+                let done = detector.stepDone(step)
+                let isCurrent = step.rawValue == detector.completedStepCount && phase == .recognizing
+
+                HStack(spacing: 14) {
+                    // 左侧状态圆形徽章
+                    ZStack {
+                        Circle()
+                            .fill(
+                                done    ? gold.opacity(0.22) :
+                                isCurrent ? coral.opacity(0.22) :
+                                Color.white.opacity(0.10)
+                            )
+                            .frame(width: 46, height: 46)
+                        Circle()
+                            .stroke(
+                                done    ? gold.opacity(0.55) :
+                                isCurrent ? coral.opacity(0.60) :
+                                Color.white.opacity(0.18),
+                                lineWidth: 1.2
+                            )
+                            .frame(width: 46, height: 46)
+
+                        if done {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(gold)
+                        } else if isCurrent {
+                            Image(systemName: step.icon)   // 左转头→arrow.left，右转头→arrow.right，张嘴→上下箭头
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(coral)
+                        } else {
+                            Text("\(step.rawValue + 1)")
+                                .font(.system(size: 17, weight: .semibold, design: .serif))
+                                .foregroundStyle(Color.white.opacity(0.40))
+                        }
+                    }
+
+                    // 中间文字
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(step.title)
+                            .font(.system(size: 22, weight: .semibold, design: .serif))
+                            .foregroundStyle(
+                                done    ? gold :
+                                isCurrent ? Color.white :
+                                Color.white.opacity(0.45)
+                            )
+                        Text(
+                            done      ? "已完成" :
+                            isCurrent ? "请完成此动作" :
+                            "等待中"
+                        )
+                        .font(.system(size: 13, weight: .regular, design: .serif))
+                        .foregroundStyle(
+                            done      ? gold.opacity(0.75) :
+                            isCurrent ? Color.white.opacity(0.80) :
+                            Color.white.opacity(0.30)
+                        )
+                    }
+
+                    Spacer()
+
+                    // 右侧当前动作箭头
+                    if isCurrent {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(coral.opacity(0.80))
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 13)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(
+                            done    ? gold.opacity(0.10) :
+                            isCurrent ? coral.opacity(0.13) :
+                            Color.white.opacity(0.07)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(
+                                    done    ? gold.opacity(0.40) :
+                                    isCurrent ? coral.opacity(0.50) :
+                                    Color.white.opacity(0.13),
+                                    lineWidth: 1
+                                )
+                        )
+                )
+                .scaleEffect(isCurrent ? (hintPulse ? 1.02 : 1.0) : 1.0)
+                .animation(
+                    isCurrent ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default,
+                    value: hintPulse
+                )
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var drawFortuneButton: some View {
+        let canDraw = phase == .activated
+        let isGenerating = phase == .generating
+        return Button {
+            openSealedStick()
+        } label: {
+            HStack(spacing: 8) {
+                if isGenerating {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                }
+                Text(isGenerating ? "正在推算命盘..." : "抽取今日运势")
+                    .font(.system(size: 20, weight: .semibold, design: .serif))
+            }
+            .foregroundStyle(.white)
+            .frame(width: 220)
+            .frame(height: 52)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        isGenerating ? coral.opacity(0.60) :
+                        canDraw      ? coral :
+                        Color.white.opacity(0.22)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color.white.opacity((canDraw || isGenerating) ? 0.35 : 0.15), lineWidth: 1)
+                    )
+                    .shadow(
+                        color: (canDraw || isGenerating) ? coral.opacity(0.5) : .clear,
+                        radius: 10, x: 0, y: 5
+                    )
+            )
+        }
+        .disabled(!canDraw)
+        .scaleEffect(canDraw && hintPulse ? 1.02 : 1.0)
+        .animation(
+            canDraw ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default,
+            value: hintPulse
+        )
+    }
+
+    // MARK: - Legacy views (used only in readyOnlyView context)
 
     private var backgroundLayer: some View {
         ZStack {
@@ -530,6 +807,8 @@ struct FaceRitualCaptureView: View {
             return "识别完成，请点中间灵签"
         case .opening:
             return "开启天机中..."
+        case .generating:
+            return "正在推算命盘..."
         }
     }
 
@@ -537,7 +816,7 @@ struct FaceRitualCaptureView: View {
         switch phase {
         case .ready:
             return false
-        case .loading, .recognizing, .activated, .opening:
+        case .loading, .recognizing, .activated, .opening, .generating:
             return true
         }
     }
@@ -578,15 +857,13 @@ struct FaceRitualCaptureView: View {
 
     private func openSealedStick() {
         guard phase == .activated else { return }
-        phase = .opening
+        phase = .generating
         detector.stop()
         timerTask?.cancel()
-        withAnimation(.easeInOut(duration: 0.45)) {
-            crackProgress = 1
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            dismiss()
-            onSuccess()
+        Task {
+            // 先在后台生成结果，完成后再 dismiss——用户不会看到符咒界面的闪烁
+            await onSuccess()
+            await MainActor.run { dismiss() }
         }
     }
 
