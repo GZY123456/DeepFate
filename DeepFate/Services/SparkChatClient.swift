@@ -255,23 +255,30 @@ enum SparkAPIError: LocalizedError {
 
 final class SparkChatClient {
     private let backend = SparkBackendConfig()
-    private let session = URLSession(configuration: .default)
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 240
+        config.timeoutIntervalForResource = 300
+        return URLSession(configuration: config)
+    }()
 
     @discardableResult
     func send(
         history: [ChatMessage],
         profileId: String?,
+        tianshiId: String? = nil,
         onDelta: @escaping (String) -> Void,
         onComplete: @escaping (Result<String, Error>) -> Void
     ) -> Task<Void, Never> {
         let messages = history.map { $0.asBackendMessage }
-        return send(messages: messages, profileId: profileId, onDelta: onDelta, onComplete: onComplete)
+        return send(messages: messages, profileId: profileId, tianshiId: tianshiId, onDelta: onDelta, onComplete: onComplete)
     }
 
     @discardableResult
     func send(
         messages: [BackendMessage],
         profileId: String?,
+        tianshiId: String? = nil,
         onDelta: @escaping (String) -> Void,
         onComplete: @escaping (Result<String, Error>) -> Void
     ) -> Task<Void, Never> {
@@ -282,7 +289,7 @@ final class SparkChatClient {
 
         let task = Task {
             do {
-                let requestBody = BackendChatRequest(messages: messages, profileId: profileId)
+                let requestBody = BackendChatRequest(messages: messages, profileId: profileId, tianshiId: tianshiId)
                 guard let encodedBody = try? JSONEncoder().encode(requestBody) else {
                     throw SparkAPIError.invalidResponse
                 }
@@ -309,6 +316,7 @@ final class SparkChatClient {
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
+        request.timeoutInterval = 240
 
         let (bytes, _) = try await session.bytes(for: request)
         var currentEvent: String?
@@ -348,6 +356,7 @@ final class SparkChatClient {
 private struct BackendChatRequest: Encodable {
     let messages: [BackendMessage]
     let profileId: String?
+    let tianshiId: String?
 }
 
 struct BackendMessage: Encodable {
@@ -391,6 +400,7 @@ extension SparkChatClient {
                     request.httpMethod = "POST"
                     request.addValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.httpBody = body
+                    request.timeoutInterval = 120
                     let (data, _) = try await self.session.data(for: request)
                     guard let response = try? JSONDecoder().decode(BackendTitleResponse.self, from: data) else {
                         throw SparkAPIError.invalidResponse

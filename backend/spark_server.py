@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import random
+import socket
 import ssl
 import time
 from datetime import datetime, timezone
@@ -42,6 +43,47 @@ SPARK_SYSTEM_PROMPT = '''
 你是一个精通八字，紫微斗数，奇门遁甲等命理知识的玄学大师，我是一个命理师，帮我为客户看一下她的八字并回复用户的问题。八字：xx xx xx xx，性别、出生地，起运时间，当前大运。
 现在是{time}
 '''
+
+TIANSHI_SYSTEM_PROMPTS = {
+    "sexy": """
+你是 DeepFate 的「性感大师姐」。
+你的表达风格：成熟、冷静、洞察力强，语气带一点锋芒和戏剧张力，但不能低俗、不能冒犯。
+你的任务：结合用户问题、上下文和命理信息，给出清晰、可执行的建议。
+
+输出要求：
+1) 先给一句结论（吉/平/谨慎或趋势判断）。
+2) 再给三段：原因判断、风险提示、行动建议。
+3) 建议必须具体可执行，尽量给时间窗或优先级。
+4) 回答简洁，默认 180-320 字；用户要求详细再展开。
+5) 不编造用户未提供的事实；不确定时明确说明“基于当前信息推断”。
+
+安全边界：
+- 不提供医疗诊断、法律定论、投资保本承诺。
+- 不鼓励极端行为、违法行为或人身伤害。
+- 涉及高风险事项时，建议咨询专业人士。
+
+现在时间：{time}
+""".strip(),
+    "soft": """
+你是 DeepFate 的「软萌小师妹」。
+你的表达风格：温柔、共情、耐心，像贴心陪伴者；语气亲和但不幼稚。
+你的任务：结合用户问题、上下文和命理信息，给出安抚情绪且可执行的建议。
+
+输出要求：
+1) 先给一句温和结论（吉/平/谨慎或趋势判断）。
+2) 再给三段：现状理解、关键提醒、下一步建议。
+3) 建议要落地，优先给今天/本周可做的动作。
+4) 回答简洁，默认 180-320 字；用户要求详细再展开。
+5) 不编造用户未提供的事实；不确定时明确说明“基于当前信息推断”。
+
+安全边界：
+- 不提供医疗诊断、法律定论、投资保本承诺。
+- 不鼓励极端行为、违法行为或人身伤害。
+- 涉及高风险事项时，建议咨询专业人士。
+
+现在时间：{time}
+""".strip(),
+}
 
 SPARK_TITLE_PROMPT = "请基于用户的第一条消息生成一个不超过12个字的聊天标题，直接输出标题文本，不要加引号。"
 
@@ -854,8 +896,10 @@ def _normalize_tosses(raw_tosses):
 
 
 def _coins_to_line(coins, line_no):
-    head_count = sum(1 for coin in coins if coin == "正")
-    total = head_count * 3 + (3 - head_count) * 2
+    front_count = sum(1 for coin in coins if coin == "正")
+    back_count = 3 - front_count
+    # 官方常见口径：正(字面)=2，反(背面)=3
+    total = front_count * 2 + back_count * 3
     line_type_map = {6: "老阴", 7: "少阳", 8: "少阴", 9: "老阳"}
     line_type = line_type_map.get(total, "少阴")
     is_yang = total in (7, 9)
@@ -1276,7 +1320,17 @@ def fetch_profile(profile_id):
             }
 
 
-def build_chat_messages(messages, profile):
+def resolve_tianshi_prompt(tianshi_id, now_str):
+    tianshi_key = str(tianshi_id or "").strip().lower()
+    prompt_template = TIANSHI_SYSTEM_PROMPTS.get(tianshi_key)
+    if prompt_template:
+        return prompt_template.format(time=now_str).strip()
+    if SPARK_SYSTEM_PROMPT.strip():
+        return SPARK_SYSTEM_PROMPT.format(time=now_str).strip()
+    return ""
+
+
+def build_chat_messages(messages, profile, tianshi_id=None):
     raw_messages = list(messages) if isinstance(messages, list) else []
     def is_error_message(item):
         if item.get("role") != "assistant":
@@ -1302,8 +1356,9 @@ def build_chat_messages(messages, profile):
     profile_prompt = build_profile_prompt(profile)
     system_parts = []
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-    if SPARK_SYSTEM_PROMPT.strip():
-        system_parts.append(SPARK_SYSTEM_PROMPT.format(time=now_str).strip())
+    role_prompt = resolve_tianshi_prompt(tianshi_id, now_str)
+    if role_prompt:
+        system_parts.append(role_prompt)
     if profile_prompt:
         system_parts.append(profile_prompt.strip())
     if system_parts:
@@ -2301,18 +2356,29 @@ def spark_title(text):
     return title.strip().strip("“”\"")
 
 
-def spark_chat_stream(messages):
+def spark_chat_stream(messages, recv_timeout=45, max_duration=180):
     ws_url = create_signed_url()
     if not ws_url:
         yield "服务端未配置 Spark 凭证，请联系管理员。"
         return
 
     payload = build_spark_payload(messages)
-    ws = websocket.create_connection(ws_url, sslopt={"cert_reqs": ssl.CERT_NONE})
+    ws = websocket.create_connection(
+        ws_url,
+        timeout=recv_timeout,
+        sslopt={"cert_reqs": ssl.CERT_NONE},
+    )
+    ws.settimeout(recv_timeout)
+    start_ts = time.time()
     try:
         ws.send(json.dumps(payload))
         while True:
-            raw = ws.recv()
+            if max_duration and time.time() - start_ts > max_duration:
+                raise TimeoutError("spark stream timeout")
+            try:
+                raw = ws.recv()
+            except (socket.timeout, websocket.WebSocketTimeoutException) as exc:
+                raise TimeoutError("spark stream timeout") from exc
             if SPARK_DEBUG_RESPONSE:
                 print("[spark_raw]", raw)
             data = json.loads(raw)
@@ -2327,6 +2393,10 @@ def spark_chat_stream(messages):
                 content = text_items[0].get("content", "")
                 if content:
                     yield content
+                else:
+                    yield None
+            else:
+                yield None
 
             if status == 2:
                 break
@@ -2339,16 +2409,18 @@ def chat():
     payload = request.get_json(silent=True) or {}
     messages = payload.get("messages", [])
     profile_id = payload.get("profileId")
+    tianshi_id = payload.get("tianshiId")
     if not isinstance(messages, list) or not messages:
         return jsonify({"error": "messages required"}), 400
     try:
         profile = fetch_profile(profile_id) if profile_id else {}
-        chat_messages = build_chat_messages(messages, profile)
-        print(f"[chat] profileId={profile_id} profile_found={bool(profile)}")
+        chat_messages = build_chat_messages(messages, profile, tianshi_id)
+        print(f"[chat] profileId={profile_id} tianshiId={tianshi_id} profile_found={bool(profile)}")
         print(chat_messages)
         answer = spark_chat(chat_messages)
         return jsonify({"content": answer})
     except Exception as exc:  # noqa: BLE001
+        print(f"[chat_error] {exc}")
         return jsonify({"error": str(exc)}), 500
 
 
@@ -2357,20 +2429,29 @@ def chat_stream():
     payload = request.get_json(silent=True) or {}
     messages = payload.get("messages", [])
     profile_id = payload.get("profileId")
+    tianshi_id = payload.get("tianshiId")
     if not isinstance(messages, list) or not messages:
         return jsonify({"error": "messages required"}), 400
 
     def generate():
         try:
             profile = fetch_profile(profile_id) if profile_id else {}
-            chat_messages = build_chat_messages(messages, profile)
-            print(f"[chat_stream] profileId={profile_id} profile_found={bool(profile)}")
+            chat_messages = build_chat_messages(messages, profile, tianshi_id)
+            print(f"[chat_stream] profileId={profile_id} tianshiId={tianshi_id} profile_found={bool(profile)}")
             print(chat_messages)
+            last_keep_alive = 0.0
             for chunk in spark_chat_stream(chat_messages):
+                if chunk is None:
+                    now = time.time()
+                    if now - last_keep_alive >= 5:
+                        yield ": keep-alive\n\n"
+                        last_keep_alive = now
+                    continue
                 safe = chunk.replace("\r", "").replace("\n", "\\n")
                 yield f"data: {safe}\n\n"
             yield "event: done\ndata: [DONE]\n\n"
         except Exception as exc:  # noqa: BLE001
+            print(f"[chat_stream_error] {exc}")
             safe = str(exc).replace("\r", "").replace("\n", "\\n")
             yield f"event: error\ndata: {safe}\n\n"
 

@@ -170,19 +170,33 @@ struct MainView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            SuggestionChipsView(suggestions: suggestions, isDisabled: isSending) { suggestion in
-                guard !isSending else { return }
-                pendingPrompt = suggestion
-                if activeProfile == nil {
-                    showProfileSheet = true
-                } else {
-                    sendUserMessage(suggestion)
-                    pendingPrompt = ""
+            VStack(spacing: 8) {
+                SuggestionChipsView(suggestions: suggestions, isDisabled: isSending) { suggestion in
+                    guard !isSending else { return }
+                    pendingPrompt = suggestion
+                    if activeProfile == nil {
+                        showProfileSheet = true
+                    } else {
+                        sendUserMessage(suggestion)
+                        pendingPrompt = ""
+                    }
                 }
-            }
-            .padding(.vertical, 10)
+                .padding(.top, 8)
 
-            chatInputSection
+                chatInputSection
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color.white.opacity(0.28), lineWidth: 0.9)
+                    )
+            )
+            .padding(.horizontal, 6)
+            .padding(.bottom, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
@@ -293,9 +307,9 @@ struct MainView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 14)
-        .padding(.top, 8)
-        .padding(.bottom, 14)
-        .background(theme.surface)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
+        .background(Color.clear)
     }
 
     @ViewBuilder private var copyToastOverlay: some View {
@@ -593,7 +607,7 @@ struct MainView: View {
         let backendMessages = history.map { $0.asBackendMessage }
         let profileId = activeProfile?.id.uuidString
 
-        currentTask = chatClient.send(messages: backendMessages, profileId: profileId, onDelta: { delta in
+        currentTask = chatClient.send(messages: backendMessages, profileId: profileId, tianshiId: selectedTianshiId, onDelta: { delta in
             DispatchQueue.main.async {
                 if let chatIndex = currentChatIndex,
                    let msgIndex = chats[chatIndex].messages.firstIndex(where: { $0.id == assistantId }) {

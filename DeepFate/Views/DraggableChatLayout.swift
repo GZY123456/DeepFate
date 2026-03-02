@@ -57,16 +57,42 @@ struct DraggableChatLayout<ModelContent: View, ChatContent: View>: View {
                 }
                 .frame(height: chatHeight)
                 .background(
-                    Color(.systemBackground)
-                        .clipShape(
-                            UnevenRoundedRectangle(
-                                topLeadingRadius: 20,
-                                bottomLeadingRadius: 0,
-                                bottomTrailingRadius: 0,
-                                topTrailingRadius: 20
+                    ZStack {
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 20,
+                            bottomLeadingRadius: 0,
+                            bottomTrailingRadius: 0,
+                            topTrailingRadius: 20
+                        )
+                        .fill(Color.white.opacity(0.05))
+
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 20,
+                            bottomLeadingRadius: 0,
+                            bottomTrailingRadius: 0,
+                            topTrailingRadius: 20
+                        )
+                        .stroke(Color.white.opacity(0.30), lineWidth: 1)
+
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 20,
+                            bottomLeadingRadius: 0,
+                            bottomTrailingRadius: 0,
+                            topTrailingRadius: 20
+                        )
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.black.opacity(0.22),
+                                    Color.black.opacity(0.08),
+                                    Color.clear
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
                             )
                         )
-                        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: -4)
+                    }
+                    .shadow(color: .black.opacity(0.16), radius: 10, x: 0, y: -4)
                 )
             }
         }

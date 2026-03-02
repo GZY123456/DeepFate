@@ -125,7 +125,29 @@ struct OneThingDivinationView: View {
                                 showQuestionSheet = true
                             }
                             .buttonStyle(.borderedProminent)
+
+                            Button {
+                                Task { await loadHistory(for: profile) }
+                            } label: {
+                                Text(isLoadingHistory ? "加载历史中..." : "查看历史记录")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Color(red: 0.36, green: 0.27, blue: 0.22))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(Color.white.opacity(0.86))
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isLoadingHistory)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.72))
+                        )
                         .padding(.top, 30)
                     } else {
                         questionCard
@@ -732,7 +754,7 @@ struct OneThingDivinationView: View {
                 isLoadingToday = false
                 switch err {
                 case let .serverError(code, _) where code == 404:
-                    startNewDivination()
+                    resetDraft(openQuestionSheet: false)
                 default:
                     errorMessage = err.localizedDescription
                 }
@@ -794,6 +816,10 @@ struct OneThingDivinationView: View {
     }
 
     private func startNewDivination() {
+        resetDraft(openQuestionSheet: true)
+    }
+
+    private func resetDraft(openQuestionSheet: Bool) {
         todayResult = nil
         activeQuestion = ""
         questionInput = ""
@@ -804,7 +830,7 @@ struct OneThingDivinationView: View {
         errorMessage = nil
         askError = nil
         divinationSubjectId = profileStore.activeProfileID
-        showQuestionSheet = true
+        showQuestionSheet = openQuestionSheet
     }
 
     private func askAI(profile: UserProfile, result: OneThingResult) async {
@@ -851,8 +877,10 @@ struct OneThingDivinationView: View {
         guard let toss, toss.count == 3 else {
             return ("────  ────", "待摇")
         }
-        let heads = toss.filter { $0 == CoinFace.front.rawValue }.count
-        let sum = heads * 3 + (3 - heads) * 2
+        let frontCount = toss.filter { $0 == CoinFace.front.rawValue }.count
+        let backCount = 3 - frontCount
+        // 官方常见口径：正(字面)=2，反(背面)=3
+        let sum = frontCount * 2 + backCount * 3
         switch sum {
         case 6:
             return ("────  ────", "老阴")
@@ -932,7 +960,7 @@ private struct CoinFaceView: View {
                 )
 
             VStack(spacing: 2) {
-                Text(face == .front ? "阳面" : "阴面")
+                Text(face == .front ? "字面" : "背面")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color(red: 0.37, green: 0.24, blue: 0.14))
                 Text(face.rawValue)

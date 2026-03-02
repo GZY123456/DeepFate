@@ -299,6 +299,7 @@ struct FaceRitualCaptureView: View {
                 Spacer(minLength: 0)
 
                 drawFortuneButton
+                    .padding(.top, 12)
                     .padding(.bottom, 8)
 
                 Text("限时 \(remainingSeconds <= 0 ? 60 : remainingSeconds) 秒，超时可重新识别")
