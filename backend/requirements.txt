@@ -3,3 +3,4 @@ websocket-client==1.7.0
 psycopg2-binary
 python-dotenv
 lunar_python>=1.4.0
+Pillow

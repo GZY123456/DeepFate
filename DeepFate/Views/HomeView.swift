@@ -64,45 +64,101 @@ struct HomeView: View {
     private var dailyEnergyCard: some View {
         let label = todayDrawResult?.cardName ?? todayEnergy.label
         let level = todayDrawResult?.keywords.first ?? todayEnergy.fortuneLevel
-        return NavigationLink {
-            OneThingDrawView()
-        } label: {
-            VStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.55, green: 0.42, blue: 0.35),
-                                    Color(red: 0.42, green: 0.32, blue: 0.28)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+        return HStack(spacing: 14) {
+            NavigationLink {
+                OneThingDrawView()
+            } label: {
+                VStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color(red: 0.55, green: 0.42, blue: 0.35),
+                                        Color(red: 0.42, green: 0.32, blue: 0.28)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
-                        )
-                        .frame(width: 88, height: 88)
-                    Image(systemName: "circle.lefthalf.filled")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.white)
-                }
+                            .frame(width: 68, height: 68)
+                        Image(systemName: "sparkles.rectangle.stack")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.white)
+                    }
 
-                Text("今日能量: \(label) - \(level)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    VStack(spacing: 4) {
+                        Text("今日抽卡")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(.white)
+                        Text("\(label) · \(level)")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.88))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+                .padding(.horizontal, 18)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color(red: 0.45, green: 0.35, blue: 0.32))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                )
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 28)
-            .padding(.horizontal, 24)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color(red: 0.45, green: 0.35, blue: 0.32))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
-            )
+            .buttonStyle(.plain)
+
+            NavigationLink {
+                PalmistryView()
+            } label: {
+                VStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color(red: 0.84, green: 0.57, blue: 0.48),
+                                        Color(red: 0.66, green: 0.40, blue: 0.34)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 68, height: 68)
+                        Image(systemName: "hand.raised.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.white)
+                    }
+
+                    VStack(spacing: 4) {
+                        Text("看手相")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(.white)
+                        Text("掌纹拍照 · 历史记录 · 问问AI")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.88))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+                .padding(.horizontal, 18)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color(red: 0.72, green: 0.48, blue: 0.42))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
     // MARK: - 命理详批 / 一事一测

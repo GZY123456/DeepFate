@@ -1,12 +1,16 @@
 import base64
+import io
 import hashlib
 import hmac
 import json
+import math
 import os
 import random
 import socket
 import ssl
+import statistics
 import time
+import uuid
 from datetime import datetime, timezone
 from time import mktime
 from urllib.parse import urlencode, urlparse
@@ -14,11 +18,17 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 from wsgiref.handlers import format_date_time
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 import websocket
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
+from PIL import Image, ImageFilter, ImageStat
+
+try:
+    import mediapipe as mp
+except Exception:  # noqa: BLE001
+    mp = None
 
 BASE_DIR = os.path.dirname(__file__)
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -103,6 +113,9 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 app = Flask(__name__)
 LOCATION_FILE = os.path.join(BASE_DIR, "locations.json")
 PROFILE_FILE = os.path.join(BASE_DIR, "profiles.json")
+UPLOAD_ROOT = os.path.join(BASE_DIR, "uploads")
+PALMISTRY_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "palmistry")
+os.makedirs(PALMISTRY_UPLOAD_DIR, exist_ok=True)
 
 DB_CONFIG = {
     "host": os.getenv("POSTGRES_HOST", "localhost"),
@@ -220,6 +233,37 @@ def init_db():
                     created_at timestamptz DEFAULT now(),
                     UNIQUE (profile_id, divination_date)
                 );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS palm_readings (
+                    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+                    profile_id uuid NOT NULL,
+                    hand_side text NOT NULL,
+                    taken_at timestamptz NOT NULL,
+                    original_image_path text NOT NULL,
+                    thumbnail_path text NOT NULL,
+                    structured jsonb NOT NULL,
+                    overall text NOT NULL,
+                    summary text NOT NULL,
+                    life_line text NOT NULL,
+                    head_line text NOT NULL,
+                    heart_line text NOT NULL,
+                    career text NOT NULL,
+                    wealth text NOT NULL,
+                    love text NOT NULL,
+                    health text NOT NULL,
+                    advice text NOT NULL,
+                    source_pipeline text NOT NULL DEFAULT 'fallback',
+                    created_at timestamptz DEFAULT now()
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_palm_readings_profile_taken_at
+                ON palm_readings (profile_id, taken_at DESC);
                 """
             )
             cur.execute(
@@ -1281,6 +1325,336 @@ def fetch_draw(profile_id, draw_date):
     }
 
 
+def _decode_base64_image(raw_value):
+    text = _clean_text(raw_value)
+    if not text:
+        return None
+    if text.startswith("data:") and "," in text:
+        text = text.split(",", 1)[1]
+    try:
+        return base64.b64decode(text)
+    except Exception:
+        return None
+
+
+def _save_palmistry_images(image_bytes):
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    reading_id = str(uuid.uuid4())
+    original_name = f"{reading_id}.jpg"
+    thumb_name = f"{reading_id}_thumb.jpg"
+    image.save(os.path.join(PALMISTRY_UPLOAD_DIR, original_name), format="JPEG", quality=90, optimize=True)
+    thumb = image.copy()
+    thumb.thumbnail((720, 720))
+    thumb.save(os.path.join(PALMISTRY_UPLOAD_DIR, thumb_name), format="JPEG", quality=80, optimize=True)
+    return reading_id, original_name, thumb_name, image
+
+
+def _distance(a, b):
+    if not a or not b:
+        return 0.0
+    return math.sqrt((a["x"] - b["x"]) ** 2 + (a["y"] - b["y"]) ** 2)
+
+
+def _classify_band(value, low_cut, high_cut, low_label, mid_label, high_label):
+    if value < low_cut:
+        return low_label
+    if value > high_cut:
+        return high_label
+    return mid_label
+
+
+def _extract_landmark_point(landmarks, key):
+    item = landmarks.get(key)
+    if not isinstance(item, dict):
+        return None
+    try:
+        return {
+            "x": float(item.get("x")),
+            "y": float(item.get("y")),
+            "confidence": float(item.get("confidence", 0)),
+        }
+    except Exception:
+        return None
+
+
+def _extract_palmistry_from_landmarks(landmarks):
+    if not isinstance(landmarks, dict) or not landmarks:
+        return None
+
+    wrist = _extract_landmark_point(landmarks, "VNHLKWrist")
+    index_mcp = _extract_landmark_point(landmarks, "VNHLKIndexMCP")
+    middle_mcp = _extract_landmark_point(landmarks, "VNHLKMiddleMCP")
+    ring_mcp = _extract_landmark_point(landmarks, "VNHLKRingMCP")
+    little_mcp = _extract_landmark_point(landmarks, "VNHLKLittleMCP")
+    thumb_tip = _extract_landmark_point(landmarks, "VNHLKThumbTip")
+    index_tip = _extract_landmark_point(landmarks, "VNHLKIndexTip")
+    middle_tip = _extract_landmark_point(landmarks, "VNHLKMiddleTip")
+    ring_tip = _extract_landmark_point(landmarks, "VNHLKRingTip")
+    little_tip = _extract_landmark_point(landmarks, "VNHLKLittleTip")
+
+    required = [wrist, index_mcp, middle_mcp, ring_mcp, little_mcp, thumb_tip, index_tip, middle_tip, ring_tip, little_tip]
+    if any(point is None for point in required):
+        return None
+
+    palm_width = max(_distance(index_mcp, little_mcp), 0.001)
+    palm_height = max(_distance(wrist, middle_mcp), 0.001)
+    aspect_ratio = palm_height / palm_width
+    tip_xs = [index_tip["x"], middle_tip["x"], ring_tip["x"], little_tip["x"]]
+    finger_spread_ratio = max(0.0, max(tip_xs) - min(tip_xs)) / palm_width
+    thumb_open_ratio = abs(thumb_tip["x"] - index_mcp["x"]) / palm_width
+    finger_lengths = [
+        _distance(index_tip, index_mcp) / palm_height,
+        _distance(middle_tip, middle_mcp) / palm_height,
+        _distance(ring_tip, ring_mcp) / palm_height,
+        _distance(little_tip, little_mcp) / palm_height,
+    ]
+    mean_finger_length = statistics.mean(finger_lengths)
+    clarity_seed = statistics.mean(point["confidence"] for point in required)
+
+    palm_shape = _classify_band(aspect_ratio, 0.92, 1.15, "方掌偏稳", "掌型均衡", "长掌偏柔")
+    finger_spread = _classify_band(finger_spread_ratio, 1.25, 1.75, "指缝收束", "舒展适中", "手指舒展")
+    line_clarity = _classify_band(clarity_seed, 0.45, 0.72, "掌纹偏淡", "掌纹中等清晰", "掌纹清晰")
+    life_line = "弧度开阔、起点稳定" if thumb_open_ratio > 0.68 else "弧度偏紧、守成倾向较强"
+    head_line = "理性规划感较强" if mean_finger_length > 0.98 else "更偏感受驱动与现场反应"
+    heart_line = "表达直接，情感推进较快" if finger_spread_ratio > 1.65 else "情感表达克制，重安全感"
+    career_line = "节奏感明显，适合循序积累" if aspect_ratio >= 1.0 else "更适合稳定框架内深耕"
+
+    notes = []
+    if thumb_open_ratio > 0.82:
+        notes.append("拇指张开角度较大，主观能动性偏强。")
+    if finger_spread_ratio < 1.3:
+        notes.append("指间距离偏收，近期更重控制风险。")
+    if mean_finger_length > 1.05:
+        notes.append("指节相对修长，思考与观察先于行动。")
+
+    return {
+        "source": "landmarks",
+        "palmShape": palm_shape,
+        "fingerSpread": finger_spread,
+        "lineClarity": line_clarity,
+        "qualitySummary": "已检测到完整掌型骨架，可进入结构化解读。",
+        "lifeLine": life_line,
+        "headLine": head_line,
+        "heartLine": heart_line,
+        "careerLine": career_line,
+        "notes": notes,
+        "metrics": {
+            "aspectRatio": round(aspect_ratio, 3),
+            "fingerSpreadRatio": round(finger_spread_ratio, 3),
+            "thumbOpenRatio": round(thumb_open_ratio, 3),
+            "meanFingerLength": round(mean_finger_length, 3),
+        },
+    }
+
+
+def _extract_palmistry_from_image(image):
+    gray = image.convert("L")
+    stat = ImageStat.Stat(gray)
+    brightness = stat.mean[0] if stat.mean else 0
+    contrast = stat.stddev[0] if stat.stddev else 0
+    edge_stat = ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES))
+    edge_strength = edge_stat.mean[0] if edge_stat.mean else 0
+    width, height = image.size
+    aspect_ratio = height / max(width, 1)
+
+    return {
+        "source": "image_heuristic",
+        "palmShape": _classify_band(aspect_ratio, 1.05, 1.35, "掌型偏宽", "掌型均衡", "掌型偏长"),
+        "fingerSpread": _classify_band(edge_strength, 9, 20, "手指收束", "舒展适中", "舒展明显"),
+        "lineClarity": _classify_band(contrast + edge_strength * 0.3, 26, 42, "掌纹偏淡", "掌纹中等清晰", "掌纹清晰"),
+        "qualitySummary": f"亮度约 {brightness:.0f}、对比度约 {contrast:.0f}，图像质量可用于基础解析。",
+        "lifeLine": "画面可见生命线区域，但当前仅做基础趋势判断。",
+        "headLine": "智慧线细节有限，建议以后续问答补充判断。",
+        "heartLine": "感情线区域可见度中等，情绪表达倾向需结合提问理解。",
+        "careerLine": "事业线先按整体掌型和掌面清晰度做保守判断。",
+        "notes": ["当前结构化结果以图像清晰度与掌型比例为基础。"],
+        "metrics": {
+            "brightness": round(brightness, 2),
+            "contrast": round(contrast, 2),
+            "edgeStrength": round(edge_strength, 2),
+            "aspectRatio": round(aspect_ratio, 3),
+        },
+    }
+
+
+def _extract_palmistry_with_mediapipe(image):
+    if mp is None:
+        return None
+    try:
+        hands = mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.5)
+        result = hands.process(image.convert("RGB"))
+        hands.close()
+        if not result.multi_hand_landmarks:
+            return None
+        structured = _extract_palmistry_from_image(image)
+        if structured:
+            structured["source"] = "mediapipe+image_heuristic"
+            structured["notes"].append("已尝试通过 MediaPipe 骨架补强检测结果。")
+        return structured
+    except Exception:
+        return None
+
+
+def _compose_palmistry_structure(image, landmarks):
+    structured = _extract_palmistry_with_mediapipe(image)
+    if structured:
+        return structured, "mediapipe"
+    structured = _extract_palmistry_from_landmarks(landmarks or {})
+    if structured:
+        return structured, "landmarks"
+    return _extract_palmistry_from_image(image), "image_heuristic"
+
+
+def build_palmistry_prompt(profile, hand_side, structured):
+    profile_lines = []
+    if profile:
+        profile_lines.extend([
+            f"- 姓名：{profile.get('name', '')}",
+            f"- 性别：{profile.get('gender', '')}",
+            f"- 出生地：{profile.get('location', '')}",
+            f"- 阳历出生：{profile.get('solar', '')}",
+            f"- 阴历出生：{profile.get('lunar', '')}",
+            f"- 真太阳时：{profile.get('trueSolar', '')}",
+        ])
+    metrics = structured.get("metrics") or {}
+    metrics_text = "、".join(f"{key}={value}" for key, value in metrics.items())
+    return (
+        "你是资深手相师。请根据结构化掌纹观察结果输出严格 JSON，不要 markdown，不要解释。"
+        "格式："
+        "{\"overall\":\"...\",\"summary\":\"...\",\"lifeLine\":\"...\",\"headLine\":\"...\",\"heartLine\":\"...\","
+        "\"career\":\"...\",\"wealth\":\"...\",\"love\":\"...\",\"health\":\"...\",\"advice\":\"...\"}"
+        "要求：summary 60~110 字，其余每项 50~120 字，语言自然，不要绝对化，不要做医疗诊断。"
+        f"识别手别：{hand_side}。"
+        f"结构化观察：掌型={structured.get('palmShape', '')}；舒展度={structured.get('fingerSpread', '')}；"
+        f"掌纹清晰度={structured.get('lineClarity', '')}；质量备注={structured.get('qualitySummary', '')}；"
+        f"生命线观察={structured.get('lifeLine', '')}；智慧线观察={structured.get('headLine', '')}；"
+        f"感情线观察={structured.get('heartLine', '')}；事业线观察={structured.get('careerLine', '')}；"
+        f"补充={';'.join(structured.get('notes') or [])}；指标={metrics_text}。"
+        + (" 用户档案：" + " ".join(profile_lines) if profile_lines else "")
+    )
+
+
+def parse_palmistry_response(text):
+    if not text:
+        return None
+    raw = text.strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            return json.loads(raw[start:end + 1])
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _default_palmistry_analysis(hand_side, structured):
+    summary = (
+        f"这次读取的是{hand_side}，整体呈现“{structured.get('palmShape', '掌型均衡')}、"
+        f"{structured.get('fingerSpread', '舒展适中')}、{structured.get('lineClarity', '掌纹中等清晰')}”的组合。"
+        "当前更适合稳住节奏、先做确认再推进，属于可进但不宜躁进的手相走势。"
+    )
+    return {
+        "overall": "稳中可进",
+        "summary": summary,
+        "lifeLine": "生命线观感偏稳，近期核心状态重在恢复节律与体能储备，适合把作息与消耗控制住。",
+        "headLine": "智慧线倾向理性规划，但容易在细节上反复权衡，关键决策宜限定时间窗口，不要拖太久。",
+        "heartLine": "感情线反馈更强调安全感与边界感，关系推进宜先看对方是否持续稳定回应。",
+        "career": "事业上适合先稳岗位、稳资源，再谈扩张。近期更适合做整理、补漏、复盘型工作。",
+        "wealth": "财运表现偏稳健，适合守住现金流和预算纪律，不宜因为情绪起伏做冲动消费或冒进投入。",
+        "love": "情感议题上宜慢热观察，先看行动一致性，不宜只凭一时的热度判断长期走向。",
+        "health": "这里只能给生活层面的提醒：近期更需要关注睡眠、肩颈与手部疲劳，不替代医疗建议。",
+        "advice": "未来一周优先做一件能落地的小事：确认一个计划、完成一次沟通或收拢一项资源。先让局面变清楚，再决定下一步。",
+    }
+
+
+def _build_palmistry_file_url(filename):
+    if not filename:
+        return None
+    return f"{request.host_url.rstrip('/')}/uploads/palmistry/{quote(filename)}"
+
+
+def _serialize_palmistry_payload(row):
+    if not row:
+        return None
+    taken_at = row.get("taken_at")
+    return {
+        "id": str(row.get("id", "")),
+        "profileId": str(row.get("profile_id", "")),
+        "handSide": row.get("hand_side", "right"),
+        "takenAt": _to_started_at_text(taken_at, "Asia/Shanghai"),
+        "takenAtISO": taken_at.isoformat() if taken_at else "",
+        "originalImageURL": _build_palmistry_file_url(row.get("original_image_path", "")),
+        "thumbnailURL": _build_palmistry_file_url(row.get("thumbnail_path", "")),
+        "analysis": {
+            "overall": row.get("overall", ""),
+            "summary": row.get("summary", ""),
+            "lifeLine": row.get("life_line", ""),
+            "headLine": row.get("head_line", ""),
+            "heartLine": row.get("heart_line", ""),
+            "career": row.get("career", ""),
+            "wealth": row.get("wealth", ""),
+            "love": row.get("love", ""),
+            "health": row.get("health", ""),
+            "advice": row.get("advice", ""),
+            "structured": row.get("structured") or {},
+        },
+    }
+
+
+def fetch_palmistry_reading(profile_id, reading_id):
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM palm_readings
+                WHERE profile_id = %s AND id = %s
+                LIMIT 1
+                """,
+                (str(profile_id), str(reading_id)),
+            )
+            row = cur.fetchone()
+    return _serialize_palmistry_payload(row)
+
+
+def list_palmistry_history(profile_id, limit=30):
+    n = max(1, min(int(limit), 100))
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, profile_id, hand_side, taken_at, thumbnail_path, summary, overall
+                FROM palm_readings
+                WHERE profile_id = %s
+                ORDER BY taken_at DESC, created_at DESC
+                LIMIT %s
+                """,
+                (str(profile_id), n),
+            )
+            rows = cur.fetchall()
+    payload = []
+    for row in rows:
+        taken_at = row.get("taken_at")
+        payload.append(
+            {
+                "id": str(row.get("id", "")),
+                "profileId": str(row.get("profile_id", "")),
+                "handSide": row.get("hand_side", "right"),
+                "takenAt": _to_started_at_text(taken_at, "Asia/Shanghai"),
+                "takenAtISO": taken_at.isoformat() if taken_at else "",
+                "thumbnailURL": _build_palmistry_file_url(row.get("thumbnail_path", "")),
+                "summary": row.get("summary", ""),
+                "overall": row.get("overall", ""),
+            }
+        )
+    return payload
+
+
 def fetch_profile(profile_id):
     if not profile_id:
         return {}
@@ -1568,6 +1942,109 @@ def create_today_draw():
         return jsonify(result)
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/uploads/palmistry/<path:filename>")
+def serve_palmistry_upload(filename):
+    return send_from_directory(PALMISTRY_UPLOAD_DIR, filename)
+
+
+@app.post("/palmistry/analyze")
+def analyze_palmistry():
+    payload = request.get_json(silent=True) or {}
+    profile_id = payload.get("profileId") or payload.get("profile_id")
+    if not profile_id:
+        return jsonify({"error": "profileId required"}), 400
+
+    image_bytes = _decode_base64_image(payload.get("imageBase64") or payload.get("image_base64"))
+    if not image_bytes:
+        return jsonify({"error": "imageBase64 required"}), 400
+
+    hand_side_raw = _clean_text(payload.get("handSide") or payload.get("hand_side")).lower()
+    hand_side = "left" if hand_side_raw == "left" else "right"
+    captured_at = _parse_iso_datetime(payload.get("capturedAt") or payload.get("captured_at"))
+    landmarks = payload.get("landmarks") if isinstance(payload.get("landmarks"), dict) else {}
+    profile = fetch_profile(profile_id)
+
+    try:
+        reading_id, original_name, thumb_name, image = _save_palmistry_images(image_bytes)
+        structured, pipeline = _compose_palmistry_structure(image, landmarks)
+        prompt = build_palmistry_prompt(profile, "左手" if hand_side == "left" else "右手", structured)
+        analysis = _default_palmistry_analysis("左手" if hand_side == "left" else "右手", structured)
+        try:
+            raw = spark_chat([{"role": "system", "content": prompt}, {"role": "user", "content": "开始解读这次手相。"}])
+            parsed = parse_palmistry_response(raw)
+            if isinstance(parsed, dict):
+                for key in ["overall", "summary", "lifeLine", "headLine", "heartLine", "career", "wealth", "love", "health", "advice"]:
+                    if _clean_text(parsed.get(key)):
+                        analysis[key] = _clean_text(parsed.get(key))
+                pipeline = pipeline + "+spark"
+        except Exception as exc:
+            print(f"[palmistry_fallback] {exc}")
+
+        with get_db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO palm_readings (
+                        id, profile_id, hand_side, taken_at, original_image_path, thumbnail_path,
+                        structured, overall, summary, life_line, head_line, heart_line,
+                        career, wealth, love, health, advice, source_pipeline
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        reading_id,
+                        str(profile_id),
+                        hand_side,
+                        captured_at,
+                        original_name,
+                        thumb_name,
+                        psycopg2.extras.Json(structured),
+                        analysis["overall"],
+                        analysis["summary"],
+                        analysis["lifeLine"],
+                        analysis["headLine"],
+                        analysis["heartLine"],
+                        analysis["career"],
+                        analysis["wealth"],
+                        analysis["love"],
+                        analysis["health"],
+                        analysis["advice"],
+                        pipeline,
+                    ),
+                )
+        stored = fetch_palmistry_reading(profile_id, reading_id)
+        if not stored:
+            return jsonify({"error": "failed to persist palm reading"}), 500
+        return jsonify(stored)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[palmistry_error] {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/palmistry/history")
+def palmistry_history():
+    profile_id = request.args.get("profile_id") or request.args.get("profileId")
+    if not profile_id:
+        return jsonify({"error": "profile_id required"}), 400
+    limit = request.args.get("limit", 30)
+    try:
+        payload = list_palmistry_history(profile_id, limit=limit)
+        return jsonify(payload)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/palmistry/<reading_id>")
+def palmistry_detail(reading_id):
+    profile_id = request.args.get("profile_id") or request.args.get("profileId")
+    if not profile_id:
+        return jsonify({"error": "profile_id required"}), 400
+    payload = fetch_palmistry_reading(profile_id, reading_id)
+    if not payload:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(payload)
 
 
 def _resolve_profile_zone(profile):

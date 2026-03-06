@@ -105,6 +105,60 @@ final class ConsultRouter: ObservableObject {
         switchToConsultTab = true
     }
 
+    func askAI(withPalmistryResult result: PalmistryResult, profile: UserProfile, chartText: String?) {
+        let profileText = """
+        用户档案信息：
+        - 姓名：\(profile.name)
+        - 性别：\(profile.gender.rawValue)
+        - 出生地：\(profile.location.fullDisplayText)
+        - 出生时间（阳历）：\(formatDateComponents(profile.birthInfo.solarComponents))
+        - 出生时间（阴历）：\(formatDateComponents(profile.birthInfo.lunarComponents))
+        - 真太阳时：\(formatDateComponents(profile.trueSolarComponents))
+        """
+        let baziSection: String
+        if let chartText, !chartText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            baziSection = "\n八字排盘信息：\n\(chartText)\n"
+        } else {
+            baziSection = ""
+        }
+        let structured = result.analysis.structured
+        let notes = structured.notes.isEmpty ? "无" : structured.notes.joined(separator: "；")
+        let prompt = """
+        请结合本次手相结果、用户档案与八字信息进行综合解读。先给判断，再给行动建议，语言清晰，不要神神叨叨：
+
+        \(profileText)
+
+        \(baziSection)
+
+        手相结果：
+        - 拍摄时间：\(result.takenAt)
+        - 手别：\(result.handSide.title)
+        - 总评：\(result.analysis.overall)
+        - 概览：\(result.analysis.summary)
+        - 生命线：\(result.analysis.lifeLine)
+        - 智慧线：\(result.analysis.headLine)
+        - 感情线：\(result.analysis.heartLine)
+        - 事业：\(result.analysis.career)
+        - 财运：\(result.analysis.wealth)
+        - 情感：\(result.analysis.love)
+        - 健康：\(result.analysis.health)
+        - 建议：\(result.analysis.advice)
+
+        结构化观察：
+        - 掌型：\(structured.palmShape)
+        - 舒展度：\(structured.fingerSpread)
+        - 掌纹清晰度：\(structured.lineClarity)
+        - 生命线观察：\(structured.lifeLine)
+        - 智慧线观察：\(structured.headLine)
+        - 感情线观察：\(structured.heartLine)
+        - 事业线观察：\(structured.careerLine)
+        - 补充：\(notes)
+        """
+        pendingChartDisplayText = "帮我分析一下这次手相结果"
+        pendingChartPrompt = prompt
+        switchToConsultTab = true
+    }
+
     func clearPendingChart() {
         pendingChartPrompt = nil
         pendingChartDisplayText = nil
