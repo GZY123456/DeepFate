@@ -60,7 +60,7 @@ struct PalmistryView: View {
         .alert("需要相机权限", isPresented: $showPermissionAlert) {
             Button("知道了", role: .cancel) { }
         } message: {
-            Text("请允许相机权限后再进行手相拍照。画面只做本地完整度检测，完成后才上传拍照结果。")
+            Text("请允许相机权限后再进行手相拍照。")
         }
         .onAppear {
             detector.onCapture = { frame in
@@ -69,15 +69,18 @@ struct PalmistryView: View {
             detector.onPermissionDenied = {
                 showPermissionAlert = true
             }
-            detector.prepareIfNeeded()
+            detector.expectedHandSide = effectiveHandSide
+            detector.prepareIfNeeded(position: detector.cameraPosition)
         }
         .onDisappear {
             detector.stop()
         }
         .onChange(of: effectiveHandSide) { _, _ in
+            detector.expectedHandSide = effectiveHandSide
             detector.resetStability()
         }
         .onChange(of: profileStore.activeProfileID) { _, _ in
+            detector.expectedHandSide = effectiveHandSide
             detector.resetStability()
             result = nil
             errorMessage = nil
@@ -141,7 +144,6 @@ struct PalmistryView: View {
             VStack(spacing: 18) {
                 header(profile: profile)
                 cameraCard(profile: profile)
-                privacyCard
                 actionHints(profile: profile)
             }
             .padding(.horizontal, 18)
@@ -181,6 +183,10 @@ struct PalmistryView: View {
                 Text("未设置性别，当前由你手动指定识别手别。")
                     .font(.caption)
                     .foregroundStyle(Color(red: 0.56, green: 0.45, blue: 0.38))
+            } else {
+                Text(profile.gender == .male ? "按传统掌相的常见看法，男性先看左手，左手更偏先天与根基。" : "按传统掌相的常见看法，女性先看右手，右手更偏当下状态与外在应验。")
+                    .font(.caption)
+                    .foregroundStyle(Color(red: 0.56, green: 0.45, blue: 0.38))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,14 +217,25 @@ struct PalmistryView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                     }
 
-                HandGuideOverlay(side: effectiveHandSide, progress: detector.stabilityProgress)
+                HandGuideOverlay(labelSide: effectiveHandSide, thumbOnLeft: detector.guideThumbOnLeft, progress: detector.stabilityProgress)
                     .padding(24)
 
                 VStack {
                     HStack {
                         statusPill(icon: "hand.raised", text: effectiveHandSide.title)
                         Spacer()
-                        statusPill(icon: "camera.aperture", text: detector.statusText)
+                        Button {
+                            Task { await detector.toggleCamera() }
+                        } label: {
+                            statusPill(
+                                icon: "camera.rotate",
+                                text: detector.cameraPosition == .back ? "切前置" : "切后置"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(detector.isSwitchingCamera || isAnalyzing)
+                        .opacity(detector.isSwitchingCamera || isAnalyzing ? 0.55 : 1)
+                        statusPill(icon: detector.isSwitchingCamera ? "arrow.triangle.2.circlepath" : "camera.aperture", text: detector.statusText)
                     }
                     .padding(14)
                     Spacer()
@@ -229,7 +246,7 @@ struct PalmistryView: View {
                     }
                 }
             }
-            .frame(height: 470)
+            .frame(height: 520)
 
             if let errorMessage {
                 Text(errorMessage)
@@ -240,40 +257,17 @@ struct PalmistryView: View {
         }
     }
 
-    private var privacyCard: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "lock.shield")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(red: 0.76, green: 0.50, blue: 0.40))
-            VStack(alignment: .leading, spacing: 6) {
-                Text("隐私说明")
-                    .font(.headline)
-                    .foregroundStyle(Color(red: 0.34, green: 0.22, blue: 0.17))
-                Text("DeepFate 只在本地做完整度检测。只有当手掌完整入框后，才会自动拍照并上传本次照片用于手相分析。")
-                    .font(.footnote)
-                    .foregroundStyle(Color(red: 0.48, green: 0.38, blue: 0.31))
-            }
-            Spacer()
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.72))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.6), lineWidth: 1)
-        )
-    }
-
     private func actionHints(profile: UserProfile) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("拍摄要求")
                 .font(.headline)
                 .foregroundStyle(Color(red: 0.34, green: 0.22, blue: 0.17))
             hintRow("1", text: "仅允许单手入镜，掌心朝向镜头，尽量五指自然张开。")
-            hintRow("2", text: "戒指和美甲可以保留，但请保证掌纹区域清晰、不要被阴影遮挡。")
-            hintRow("3", text: profile.gender == .male ? "当前默认识别左手。" : profile.gender == .female ? "当前默认识别右手。" : "你可以在上方手动切换左手或右手。")
+            hintRow("2", text: "前置和后置摄像头都可用，优先选择掌纹更清晰、反光更少的一侧。")
+            hintRow("3", text: "戒指和美甲可以保留，但请保证掌纹区域清晰、不要被阴影遮挡。")
+            hintRow("4", text: profile.gender == .male ? "当前默认识别左手。传统掌相常以“男左”为先，偏看先天根基与底盘。"
+                : profile.gender == .female ? "当前默认识别右手。传统掌相常以“女右”为先，偏看当下状态与外在应验。"
+                : "未设置性别时不强制左右手，你可以按实际需求手动切换。")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
@@ -741,66 +735,93 @@ struct PalmistryView: View {
 }
 
 private struct HandGuideOverlay: View {
-    let side: PalmHandSide
+    let labelSide: PalmHandSide
+    let thumbOnLeft: Bool
     let progress: Double
+    @State private var scanProgress: CGFloat = 0
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            let palmWidth = size.width * 0.38
-            let palmHeight = size.height * 0.32
-            let fingerWidth = palmWidth * 0.14
-            let fingerHeight = palmHeight * 0.68
-            let thumbWidth = palmWidth * 0.20
-            let thumbHeight = palmHeight * 0.38
-            let guideColor = Color.white.opacity(0.85)
-            let glow = Color(red: 0.98, green: 0.77, blue: 0.45)
+            let zone = CGRect(x: size.width * 0.10, y: size.height * 0.06, width: size.width * 0.80, height: size.height * 0.86)
+            let handPath = PalmGuideGeometry.visualPath(in: zone, thumbOnLeft: thumbOnLeft)
+            let outsideMask = Path { path in
+                path.addRect(CGRect(origin: .zero, size: size))
+                path.addPath(handPath)
+            }
+            let glow = Color(red: 0.96, green: 0.82, blue: 0.56)
+            let scanY = zone.minY + zone.height * (0.14 + scanProgress * 0.68)
 
             ZStack {
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .stroke(style: StrokeStyle(lineWidth: 2, dash: [10, 8]))
-                    .foregroundStyle(guideColor.opacity(0.55))
-                    .frame(width: palmWidth, height: palmHeight)
-                    .offset(y: size.height * 0.14)
+                outsideMask
+                    .fill(Color.black.opacity(0.32), style: FillStyle(eoFill: true))
 
-                HStack(spacing: fingerWidth * 0.18) {
-                    ForEach(0..<4, id: \.self) { idx in
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-                            .foregroundStyle(guideColor.opacity(idx == 1 ? 0.95 : 0.75))
-                            .frame(width: fingerWidth, height: fingerHeight * (idx == 1 ? 1.06 : 1.0 - Double(abs(idx - 1)) * 0.06))
-                    }
-                }
-                .offset(y: -size.height * 0.06)
+                handPath
+                    .fill(Color.white.opacity(0.025))
 
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-                    .foregroundStyle(guideColor.opacity(0.75))
-                    .frame(width: thumbWidth, height: thumbHeight)
-                    .rotationEffect(.degrees(side == .left ? -32 : 32))
-                    .offset(x: side == .left ? -palmWidth * 0.34 : palmWidth * 0.34, y: size.height * 0.10)
+                handPath
+                    .stroke(Color.white.opacity(0.14), lineWidth: 7)
+                    .blur(radius: 10)
+
+                handPath
+                    .stroke(Color.white.opacity(0.92), style: StrokeStyle(lineWidth: 3.2, lineCap: .round, lineJoin: .round, dash: [10, 8]))
+
+                handPath
+                    .stroke(glow.opacity(0.28), lineWidth: 1.2)
+                    .blur(radius: 2)
+
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.clear,
+                                glow.opacity(0.10),
+                                glow.opacity(0.68),
+                                glow.opacity(0.12),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: zone.width * 0.74, height: 20)
+                    .position(x: zone.midX, y: scanY)
+                    .mask { handPath.fill(Color.white) }
+                    .blur(radius: 1.4)
+
+                Rectangle()
+                    .fill(glow.opacity(0.72))
+                    .frame(width: zone.width * 0.58, height: 2)
+                    .position(x: zone.midX, y: scanY)
+                    .mask { handPath.fill(Color.white) }
+                    .shadow(color: glow.opacity(0.75), radius: 10)
 
                 Circle()
                     .trim(from: 0, to: progress)
                     .stroke(glow, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                    .frame(width: size.width * 0.72, height: size.width * 0.72)
-                    .shadow(color: glow.opacity(0.6), radius: 10)
+                    .frame(width: zone.width * 0.92, height: zone.width * 0.92)
+                    .shadow(color: glow.opacity(0.38), radius: 10)
 
                 VStack(spacing: 6) {
-                    Text(side.title)
+                    Text(labelSide.title)
                         .font(.system(.title3, design: .serif).weight(.semibold))
-                    Text("请将整只手放入引导框")
+                    Text("请将整只手放入掌形引导框")
                         .font(.footnote)
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(Color.black.opacity(0.22), in: Capsule())
-                .offset(y: size.height * 0.35)
+                .background(Color.black.opacity(0.26), in: Capsule())
+                .offset(y: zone.maxY - size.height / 2 - 8)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .scaleEffect(x: side.mirrored ? -1 : 1, y: 1)
+            .onAppear {
+                scanProgress = 0
+                withAnimation(.linear(duration: 2.2).repeatForever(autoreverses: true)) {
+                    scanProgress = 1
+                }
+            }
         }
     }
 }
@@ -810,12 +831,100 @@ private struct PalmCameraPreviewView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PalmCameraPreviewContainerView {
         let view = PalmCameraPreviewContainerView()
-        view.attach(session: detector.session)
+        view.attach(session: detector.session, isFront: detector.isUsingFrontCamera)
         return view
     }
 
     func updateUIView(_ uiView: PalmCameraPreviewContainerView, context: Context) {
-        uiView.attach(session: detector.session)
+        uiView.attach(session: detector.session, isFront: detector.isUsingFrontCamera)
+    }
+}
+
+private enum PalmGuideGeometry {
+    private struct Component {
+        let rect: CGRect
+        let rotation: CGFloat
+    }
+
+    static func visualPath(in rect: CGRect, thumbOnLeft: Bool) -> Path {
+        outlinePath(in: rect, thumbOnLeft: thumbOnLeft, expansion: 1.0)
+    }
+
+    static func detectionPath(in rect: CGRect, thumbOnLeft: Bool) -> Path {
+        var path = Path()
+        for component in detectionComponents(in: rect, thumbOnLeft: thumbOnLeft) {
+            let rounded = Path(roundedRect: component.rect, cornerSize: CGSize(width: component.rect.width / 2, height: component.rect.width / 2))
+            let transformed = rounded.applying(
+                CGAffineTransform(translationX: component.rect.midX, y: component.rect.midY)
+                    .rotated(by: component.rotation)
+                    .translatedBy(x: -component.rect.midX, y: -component.rect.midY)
+            )
+            path.addPath(transformed)
+        }
+        return path
+    }
+
+    static func contains(_ point: CGPoint, thumbOnLeft: Bool) -> Bool {
+        detectionPath(in: CGRect(x: 0, y: 0, width: 1, height: 1), thumbOnLeft: thumbOnLeft).contains(point)
+    }
+
+    private static func outlinePath(in rect: CGRect, thumbOnLeft: Bool, expansion: CGFloat) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+
+        func mapped(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            let mirroredX = thumbOnLeft ? x : 1 - x
+            let base = CGPoint(x: rect.minX + mirroredX * rect.width, y: rect.minY + y * rect.height)
+            let dx = (base.x - center.x) * expansion
+            let dy = (base.y - center.y) * expansion
+            return CGPoint(x: center.x + dx, y: center.y + dy)
+        }
+
+        var path = Path()
+        path.move(to: mapped(0.66, 0.98))
+        path.addCurve(to: mapped(0.34, 0.98), control1: mapped(0.57, 1.00), control2: mapped(0.44, 1.00))
+        path.addCurve(to: mapped(0.21, 0.84), control1: mapped(0.28, 0.96), control2: mapped(0.21, 0.91))
+        path.addCurve(to: mapped(0.17, 0.64), control1: mapped(0.20, 0.77), control2: mapped(0.17, 0.71))
+        path.addCurve(to: mapped(0.07, 0.56), control1: mapped(0.12, 0.61), control2: mapped(0.08, 0.60))
+        path.addCurve(to: mapped(0.12, 0.43), control1: mapped(0.03, 0.52), control2: mapped(0.03, 0.45))
+        path.addCurve(to: mapped(0.19, 0.35), control1: mapped(0.15, 0.40), control2: mapped(0.17, 0.37))
+        path.addCurve(to: mapped(0.22, 0.18), control1: mapped(0.20, 0.31), control2: mapped(0.19, 0.22))
+        path.addCurve(to: mapped(0.29, 0.13), control1: mapped(0.23, 0.14), control2: mapped(0.26, 0.12))
+        path.addCurve(to: mapped(0.32, 0.31), control1: mapped(0.31, 0.14), control2: mapped(0.34, 0.25))
+        path.addCurve(to: mapped(0.40, 0.07), control1: mapped(0.31, 0.23), control2: mapped(0.34, 0.10))
+        path.addCurve(to: mapped(0.48, 0.04), control1: mapped(0.42, 0.04), control2: mapped(0.45, 0.03))
+        path.addCurve(to: mapped(0.52, 0.31), control1: mapped(0.52, 0.07), control2: mapped(0.54, 0.24))
+        path.addCurve(to: mapped(0.60, 0.10), control1: mapped(0.51, 0.23), control2: mapped(0.54, 0.11))
+        path.addCurve(to: mapped(0.67, 0.08), control1: mapped(0.62, 0.07), control2: mapped(0.65, 0.07))
+        path.addCurve(to: mapped(0.70, 0.33), control1: mapped(0.70, 0.11), control2: mapped(0.72, 0.26))
+        path.addCurve(to: mapped(0.78, 0.18), control1: mapped(0.69, 0.27), control2: mapped(0.73, 0.18))
+        path.addCurve(to: mapped(0.85, 0.21), control1: mapped(0.80, 0.16), control2: mapped(0.84, 0.17))
+        path.addCurve(to: mapped(0.84, 0.47), control1: mapped(0.86, 0.26), control2: mapped(0.86, 0.38))
+        path.addCurve(to: mapped(0.82, 0.78), control1: mapped(0.84, 0.58), control2: mapped(0.86, 0.71))
+        path.addCurve(to: mapped(0.66, 0.98), control1: mapped(0.80, 0.90), control2: mapped(0.74, 0.98))
+        path.closeSubpath()
+        return path
+    }
+
+    private static func detectionComponents(in rect: CGRect, thumbOnLeft: Bool) -> [Component] {
+        func orient(_ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat) -> CGRect {
+            let originX = thumbOnLeft ? x : (1 - x - width)
+            return CGRect(
+                x: rect.minX + originX * rect.width,
+                y: rect.minY + y * rect.height,
+                width: width * rect.width,
+                height: height * rect.height
+            )
+        }
+
+        return [
+            Component(rect: orient(0.26, 0.35, 0.48, 0.42), rotation: 0),
+            Component(rect: orient(0.32, 0.73, 0.34, 0.19), rotation: 0),
+            Component(rect: orient(0.11, 0.38, 0.18, 0.28), rotation: thumbOnLeft ? -0.78 : 0.78),
+            Component(rect: orient(0.20, 0.12, 0.13, 0.33), rotation: thumbOnLeft ? -0.04 : 0.04),
+            Component(rect: orient(0.35, 0.05, 0.13, 0.39), rotation: 0),
+            Component(rect: orient(0.50, 0.09, 0.12, 0.35), rotation: thumbOnLeft ? 0.03 : -0.03),
+            Component(rect: orient(0.63, 0.16, 0.11, 0.27), rotation: thumbOnLeft ? 0.06 : -0.06)
+        ]
     }
 }
 
@@ -826,10 +935,12 @@ private final class PalmCameraPreviewContainerView: UIView {
         layer as! AVCaptureVideoPreviewLayer
     }
 
-    func attach(session: AVCaptureSession) {
+    func attach(session: AVCaptureSession, isFront: Bool) {
         previewLayer.session = session
         previewLayer.videoGravity = .resizeAspectFill
         previewLayer.connection?.videoRotationAngle = 90
+        previewLayer.connection?.automaticallyAdjustsVideoMirroring = false
+        previewLayer.connection?.isVideoMirrored = isFront
     }
 }
 
@@ -839,12 +950,15 @@ private struct PalmCapturedFrame {
     let capturedAt: Date
 }
 
-private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     @Published private(set) var guidanceText: String = "将整只手放入引导框，稳定后会自动拍照"
     @Published private(set) var statusText: String = "等待识别"
     @Published private(set) var stabilityProgress: Double = 0
+    @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
+    @Published private(set) var isSwitchingCamera: Bool = false
 
     let session = AVCaptureSession()
+    var expectedHandSide: PalmHandSide = .right
 
     var onCapture: ((PalmCapturedFrame) -> Void)?
     var onPermissionDenied: (() -> Void)?
@@ -852,15 +966,25 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
     private let output = AVCaptureVideoDataOutput()
     private let queue = DispatchQueue(label: "PalmCaptureDetector.queue")
     private let context = CIContext(options: nil)
+    private var currentInput: AVCaptureDeviceInput?
     private var didConfigure = false
     private var frameCounter = 0
     private var stableCount = 0
     private var isCapturing = false
-    private let requiredStableCount = 8
-    private let detectionZone = CGRect(x: 0.16, y: 0.14, width: 0.68, height: 0.72)
+    private let requiredStableCount = 5
+    private let detectionZone = CGRect(x: 0.10, y: 0.05, width: 0.80, height: 0.88)
 
-    func prepareIfNeeded() {
+    var isUsingFrontCamera: Bool {
+        cameraPosition == .front
+    }
+
+    var guideThumbOnLeft: Bool {
+        cameraPosition == .front ? expectedHandSide == .left : expectedHandSide == .right
+    }
+
+    func prepareIfNeeded(position: AVCaptureDevice.Position) {
         guard !didConfigure else { return }
+        cameraPosition = position
         session.beginConfiguration()
         session.sessionPreset = .photo
         defer {
@@ -868,13 +992,9 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
             didConfigure = true
         }
 
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
-                ?? AVCaptureDevice.default(for: .video),
-              let input = try? AVCaptureDeviceInput(device: device),
-              session.canAddInput(input) else {
+        guard configureInput(position: position) else {
             return
         }
-        session.addInput(input)
 
         output.videoSettings = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
@@ -884,6 +1004,84 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
         guard session.canAddOutput(output) else { return }
         session.addOutput(output)
         output.connection(with: .video)?.videoRotationAngle = 90
+        output.connection(with: .video)?.isVideoMirrored = position == .front
+    }
+
+    private func configureInput(position: AVCaptureDevice.Position) -> Bool {
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .builtInDualWideCamera, .builtInUltraWideCamera],
+            mediaType: .video,
+            position: position
+        )
+        guard let device = discovery.devices.first ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
+              let input = try? AVCaptureDeviceInput(device: device) else {
+            return false
+        }
+
+        let previousInput = currentInput
+        if let previousInput {
+            session.removeInput(previousInput)
+        }
+
+        guard session.canAddInput(input) else {
+            if let previousInput, session.canAddInput(previousInput) {
+                session.addInput(previousInput)
+                currentInput = previousInput
+            }
+            return false
+        }
+
+        session.addInput(input)
+        currentInput = input
+        return true
+    }
+
+    @MainActor
+    func switchCamera(to position: AVCaptureDevice.Position) async {
+        if isSwitchingCamera { return }
+        if !didConfigure {
+            prepareIfNeeded(position: position)
+            cameraPosition = position
+        }
+        guard cameraPosition != position || currentInput == nil else {
+            resetStability()
+            statusText = position == .front ? "前置识别中" : "后置识别中"
+            return
+        }
+
+        isSwitchingCamera = true
+        statusText = "切换中"
+        let wasRunning = session.isRunning
+        let switched = await withCheckedContinuation { continuation in
+            queue.async {
+                self.session.beginConfiguration()
+                let success = self.configureInput(position: position)
+                if let connection = self.output.connection(with: .video) {
+                    connection.videoRotationAngle = 90
+                    connection.automaticallyAdjustsVideoMirroring = false
+                    connection.isVideoMirrored = position == .front
+                }
+                self.session.commitConfiguration()
+                if wasRunning && !self.session.isRunning {
+                    self.session.startRunning()
+                }
+                continuation.resume(returning: success)
+            }
+        }
+        resetStability()
+        if switched {
+            cameraPosition = position
+            statusText = position == .front ? "前置识别中" : "后置识别中"
+        } else {
+            statusText = "切换失败"
+        }
+        isSwitchingCamera = false
+    }
+
+    @MainActor
+    func toggleCamera() async {
+        let next: AVCaptureDevice.Position = cameraPosition == .back ? .front : .back
+        await switchCamera(to: next)
     }
 
     func requestCameraAccess() async -> Bool {
@@ -903,14 +1101,17 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
 
     @MainActor
     func start() async {
-        prepareIfNeeded()
+        prepareIfNeeded(position: cameraPosition)
         resetStability()
-        guard !session.isRunning else { return }
+        guard !session.isRunning else {
+            statusText = cameraPosition == .front ? "前置识别中" : "后置识别中"
+            return
+        }
         let session = session
         queue.async {
             session.startRunning()
         }
-        statusText = "识别中"
+        statusText = cameraPosition == .front ? "前置识别中" : "后置识别中"
     }
 
     func stop() {
@@ -938,19 +1139,19 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         let request = VNDetectHumanHandPoseRequest()
-        request.maximumHandCount = 2
-        let handler = VNImageRequestHandler(cmSampleBuffer: sampleBuffer, orientation: .right, options: [:])
+        request.maximumHandCount = 1
+        let handler = VNImageRequestHandler(cmSampleBuffer: sampleBuffer, orientation: cameraPosition == .front ? .leftMirrored : .right, options: [:])
         do {
             try handler.perform([request])
             let observations = request.results ?? []
-            guard observations.count == 1, let observation = observations.first else {
-                markInvalid("请确保画面中只有一只手")
+            guard let observation = observations.first else {
+                markInvalid("请把掌心对准引导框，避免背景干扰")
                 return
             }
             let recognition = try observation.recognizedPoints(.all)
             let payload = selectedLandmarks(from: recognition)
             guard isComplete(points: payload) else {
-                markInvalid("请将整只手完整放入引导框")
+                markInvalid("请把手掌再靠近一些，并让五指略微张开")
                 return
             }
             stableCount += 1
@@ -1008,18 +1209,23 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
         ]
         let requiredPoints = requiredKeys.compactMap { points[$0] }
         guard requiredPoints.count == requiredKeys.count else { return false }
-        guard requiredPoints.allSatisfy({ $0.confidence > 0.2 }) else { return false }
+        guard requiredPoints.allSatisfy({ $0.confidence > 0.06 }) else { return false }
+        for point in requiredPoints {
+            guard PalmGuideGeometry.contains(CGPoint(x: point.x, y: point.y), thumbOnLeft: guideThumbOnLeft) else {
+                return false
+            }
+        }
 
         let xs = requiredPoints.map { $0.x }
         let ys = requiredPoints.map { $0.y }
         guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else { return false }
         let bbox = CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX), height: CGFloat(maxY - minY))
-        guard bbox.width > 0.24, bbox.height > 0.42 else { return false }
+        guard bbox.width > 0.11, bbox.height > 0.18 else { return false }
         guard detectionZone.contains(CGPoint(x: bbox.midX, y: bbox.midY)) else { return false }
-        guard bbox.minX >= detectionZone.minX - 0.06,
-              bbox.maxX <= detectionZone.maxX + 0.06,
-              bbox.minY >= detectionZone.minY - 0.06,
-              bbox.maxY <= detectionZone.maxY + 0.06 else {
+        guard bbox.minX >= detectionZone.minX - 0.12,
+              bbox.maxX <= detectionZone.maxX + 0.12,
+              bbox.minY >= detectionZone.minY - 0.12,
+              bbox.maxY <= detectionZone.maxY + 0.12 else {
             return false
         }
         guard let wrist = points["VNHLKWrist"] else { return false }
@@ -1029,9 +1235,10 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
             points["VNHLKRingTip"],
             points["VNHLKLittleTip"]
         ].compactMap { $0 }
-        guard fingerTips.allSatisfy({ $0.y > wrist.y + 0.10 }) else { return false }
+        let averageTipY = fingerTips.map { $0.y }.reduce(0, +) / Double(fingerTips.count)
+        guard averageTipY > wrist.y + 0.015 else { return false }
         let tipSpread = (fingerTips.map { $0.x }.max() ?? 0) - (fingerTips.map { $0.x }.min() ?? 0)
-        guard tipSpread > 0.16 else { return false }
+        guard tipSpread > 0.045 else { return false }
         return true
     }
 
@@ -1049,6 +1256,10 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
         guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
             return nil
         }
-        return UIImage(cgImage: cgImage, scale: 1, orientation: .right)
+        return UIImage(
+            cgImage: cgImage,
+            scale: 1,
+            orientation: cameraPosition == .front ? .leftMirrored : .right
+        )
     }
 }
