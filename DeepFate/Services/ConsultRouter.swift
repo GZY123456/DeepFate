@@ -106,6 +106,7 @@ final class ConsultRouter: ObservableObject {
     }
 
     func askAI(withPalmistryResult result: PalmistryResult, profile: UserProfile, chartText: String?) {
+        guard let analysis = result.analysis else { return }
         let profileText = """
         用户档案信息：
         - 姓名：\(profile.name)
@@ -121,8 +122,9 @@ final class ConsultRouter: ObservableObject {
         } else {
             baziSection = ""
         }
-        let structured = result.analysis.structured
+        let structured = analysis.structured
         let notes = structured.notes.isEmpty ? "无" : structured.notes.joined(separator: "；")
+        let tags = analysis.summaryTags.isEmpty ? "无" : analysis.summaryTags.joined(separator: "、")
         let prompt = """
         请结合本次手相结果、用户档案与八字信息进行综合解读。先给判断，再给行动建议，语言清晰，不要神神叨叨：
 
@@ -133,16 +135,17 @@ final class ConsultRouter: ObservableObject {
         手相结果：
         - 拍摄时间：\(result.takenAt)
         - 手别：\(result.handSide.title)
-        - 总评：\(result.analysis.overall)
-        - 概览：\(result.analysis.summary)
-        - 生命线：\(result.analysis.lifeLine)
-        - 智慧线：\(result.analysis.headLine)
-        - 感情线：\(result.analysis.heartLine)
-        - 事业：\(result.analysis.career)
-        - 财运：\(result.analysis.wealth)
-        - 情感：\(result.analysis.love)
-        - 健康：\(result.analysis.health)
-        - 建议：\(result.analysis.advice)
+        - 总评：\(analysis.overall)
+        - 概览：\(analysis.summary)
+        - 生命线：\(analysis.lifeLine)
+        - 智慧线：\(analysis.headLine)
+        - 感情线：\(analysis.heartLine)
+        - 事业：\(analysis.career)
+        - 财运：\(analysis.wealth)
+        - 情感：\(analysis.love)
+        - 健康：\(analysis.health)
+        - 建议：\(analysis.advice)
+        - 摘要标签：\(tags)
 
         结构化观察：
         - 掌型：\(structured.palmShape)

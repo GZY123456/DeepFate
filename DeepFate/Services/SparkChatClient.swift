@@ -10,6 +10,10 @@ struct SparkBackendConfig {
         "http://192.168.0.101:8000",
         "http://192.168.0.103:8000"
     ]
+    private static let bonjourHostURLs = [
+        // 真机调试时优先尝试开发机的 Bonjour 地址，避免局域网 IP 漂移导致请求落空。
+        "http://gzydeMacBook-Pro-10.local:8000"
+    ]
 
     let chatPath: String = "/spark/chat"
     let streamPath: String = "/spark/chat/stream"
@@ -67,6 +71,7 @@ struct SparkBackendConfig {
         var rawCandidates: [String] = []
         if let configuredBaseURL { rawCandidates.append(configuredBaseURL) }
         if let lastSuccessfulBaseURL { rawCandidates.append(lastSuccessfulBaseURL) }
+        rawCandidates.append(contentsOf: Self.bonjourHostURLs)
         rawCandidates.append(contentsOf: Self.legacyURLs)
         rawCandidates.append(contentsOf: [
             Self.fallbackURL,

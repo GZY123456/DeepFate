@@ -247,7 +247,7 @@ struct FaceRitualCaptureView: View {
                 Button {
                     beginFlow()
                 } label: {
-                    Text("开始相面识别")
+                    Text("刷脸解锁今日运势")
                         .font(.system(size: 20, weight: .semibold, design: .serif))
                         .foregroundStyle(.white)
                         .frame(width: 200)

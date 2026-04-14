@@ -21,6 +21,9 @@ struct PalmistryView: View {
     @State private var historyError: String?
     @State private var isLoadingHistory = false
     @State private var selectedManualSide: PalmHandSide = .right
+    @State private var capturedImage: UIImage?
+    @State private var showFullReport = false
+    @State private var reportPollingTask: Task<Void, Never>?
 
     private let palmistryClient = PalmistryClient()
     private let chartClient = ChartClient()
@@ -74,6 +77,7 @@ struct PalmistryView: View {
         }
         .onDisappear {
             detector.stop()
+            reportPollingTask?.cancel()
         }
         .onChange(of: effectiveHandSide) { _, _ in
             detector.expectedHandSide = effectiveHandSide
@@ -83,6 +87,8 @@ struct PalmistryView: View {
             detector.expectedHandSide = effectiveHandSide
             detector.resetStability()
             result = nil
+            capturedImage = nil
+            showFullReport = false
             errorMessage = nil
             askError = nil
         }
@@ -252,6 +258,17 @@ struct PalmistryView: View {
                 Text(errorMessage)
                     .font(.footnote)
                     .foregroundStyle(Color.red)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.white.opacity(0.92))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.red.opacity(0.16), lineWidth: 1)
+                    )
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -285,16 +302,23 @@ struct PalmistryView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 18) {
                 palmResultHero(result)
-                sectionCard(title: "总评", content: result.analysis.summary)
-                sectionCard(title: "生命线", content: result.analysis.lifeLine)
-                sectionCard(title: "智慧线", content: result.analysis.headLine)
-                sectionCard(title: "感情线", content: result.analysis.heartLine)
-                sectionCard(title: "事业", content: result.analysis.career)
-                sectionCard(title: "财运", content: result.analysis.wealth)
-                sectionCard(title: "情感", content: result.analysis.love)
-                sectionCard(title: "健康", content: result.analysis.health)
-                structuredCard(result.analysis.structured)
-                sectionCard(title: "建议", content: result.analysis.advice)
+                reportStatusCard(result)
+                if let analysis = result.analysis, !analysis.summaryTags.isEmpty {
+                    tagFlow(analysis.summaryTags)
+                }
+                if result.isReportReady && showFullReport, let analysis = result.analysis {
+                    sectionCard(title: "总评", content: analysis.summary)
+                    sectionCard(title: "生命线", content: analysis.lifeLine)
+                    sectionCard(title: "智慧线", content: analysis.headLine)
+                    sectionCard(title: "爱情线", content: analysis.heartLine)
+                    sectionCard(title: "事业线", content: analysis.structured.careerLine)
+                    sectionCard(title: "事业", content: analysis.career)
+                    sectionCard(title: "财运", content: analysis.wealth)
+                    sectionCard(title: "情感", content: analysis.love)
+                    sectionCard(title: "健康", content: analysis.health)
+                    structuredCard(analysis.structured)
+                    sectionCard(title: "建议", content: analysis.advice)
+                }
                 if let askError {
                     Text(askError)
                         .font(.footnote)
@@ -309,30 +333,56 @@ struct PalmistryView: View {
         }
     }
 
+    private func reportStatusCard(_ result: PalmistryResult) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("专属解读")
+                .font(.headline)
+                .foregroundStyle(Color(red: 0.34, green: 0.22, blue: 0.17))
+            switch result.reportStatus {
+            case .pending:
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .tint(Color(red: 0.79, green: 0.42, blue: 0.36))
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("您的专属天师正在思考中...")
+                            .font(.subheadline.weight(.semibold))
+                        Text("已完成掌纹分割与主线高亮，完整报告生成后可在当前页展开查看。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(14)
+                .background(Color.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            case .failed:
+                Text(result.reportError?.isEmpty == false ? result.reportError! : "报告生成较慢，请稍后查看")
+                    .font(.subheadline)
+                    .foregroundStyle(Color(red: 0.54, green: 0.30, blue: 0.25))
+                    .padding(14)
+                    .background(Color.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            case .ready:
+                Text(showFullReport ? "完整报告已展开，你可以继续查看详情。" : "完整报告已生成，点击下方按钮即可展开查看。")
+                    .font(.subheadline)
+                    .foregroundStyle(Color(red: 0.24, green: 0.17, blue: 0.14))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(cardBackground)
+    }
+
     private func palmResultHero(_ result: PalmistryResult) -> some View {
         VStack(spacing: 14) {
             ZStack(alignment: .bottomLeading) {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(Color.white.opacity(0.58))
-                    .frame(height: 270)
+                    .frame(height: 360)
                     .overlay {
-                        if let url = result.originalImageURL {
-                            AsyncImage(url: url) { phase in
-                                switch phase {
-                                case let .success(image):
-                                    image
-                                        .resizable()
-                                        .scaledToFill()
-                                case .failure:
-                                    Color(red: 0.94, green: 0.88, blue: 0.83)
-                                case .empty:
-                                    ProgressView()
-                                @unknown default:
-                                    ProgressView()
-                                }
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        }
+                        PalmResultMediaView(
+                            capturedImage: capturedImage,
+                            remoteURL: result.originalImageURL,
+                            lines: result.overlays
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     }
                     .overlay(
                         LinearGradient(
@@ -342,8 +392,25 @@ struct PalmistryView: View {
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     )
+                VStack(alignment: .trailing, spacing: 8) {
+                    ForEach(result.overlays) { line in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color(hex: line.colorHex))
+                                .frame(width: 8, height: 8)
+                            Text(line.title)
+                                .font(.caption.weight(.semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.22), in: Capsule())
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(result.analysis.overall)
+                    Text(result.analysis?.overall ?? "已完成掌纹分割")
                         .font(.system(.title2, design: .serif).weight(.bold))
                     HStack(spacing: 8) {
                         sideBadge(result.handSide, locked: false)
@@ -353,6 +420,21 @@ struct PalmistryView: View {
                 }
                 .foregroundStyle(.white)
                 .padding(18)
+            }
+        }
+    }
+
+    private func tagFlow(_ tags: [String]) -> some View {
+        let columns = [GridItem(.adaptive(minimum: 90), spacing: 10)]
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+            ForEach(tags, id: \.self) { tag in
+                Text(tag)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(red: 0.56, green: 0.31, blue: 0.26))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.74), in: Capsule())
             }
         }
     }
@@ -417,17 +499,36 @@ struct PalmistryView: View {
     private func actionButtons(profile: UserProfile, result: PalmistryResult) -> some View {
         VStack(spacing: 12) {
             Button {
-                Task { await askAI(for: result, profile: profile) }
+                if result.isReportReady {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showFullReport = true
+                    }
+                }
             } label: {
-                Text(isAskingAI ? "生成中..." : "问问AI")
+                Text(result.isReportReady ? (showFullReport ? "完整报告已展开" : "查看完整报告") : "您的专属天师正在思考中...")
                     .font(.headline)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
             }
-            .background(Color(red: 0.79, green: 0.42, blue: 0.36))
+            .background(result.isReportReady ? Color(red: 0.79, green: 0.42, blue: 0.36) : Color.white.opacity(0.28))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .disabled(isAskingAI)
+            .disabled(!result.isReportReady || showFullReport)
+
+            if showFullReport, result.isReportReady {
+                Button {
+                    Task { await askAI(for: result, profile: profile) }
+                } label: {
+                    Text(isAskingAI ? "生成中..." : "问问AI")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .background(Color(red: 0.79, green: 0.42, blue: 0.36))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .disabled(isAskingAI)
+            }
 
             HStack(spacing: 12) {
                 Button {
@@ -569,12 +670,24 @@ struct PalmistryView: View {
     }
 
     private var guideFooter: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             ProgressView(value: detector.stabilityProgress)
                 .tint(Color(red: 0.82, green: 0.46, blue: 0.38))
+            Text("稳定进度 \(detector.stableHoldDurationText)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.white.opacity(0.85))
             Text(detector.guidanceText)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.white)
+            if !detector.validationReasons.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(detector.validationReasons, id: \.self) { reason in
+                        Text("• \(reason)")
+                            .font(.caption)
+                            .foregroundStyle(Color(red: 1.0, green: 0.92, blue: 0.84))
+                    }
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -652,10 +765,12 @@ struct PalmistryView: View {
         guard let profile = activeProfile else { return }
         guard !isAnalyzing else { return }
         isAnalyzing = true
+        capturedImage = frame.image
+        showFullReport = false
         errorMessage = nil
         askError = nil
         do {
-            let response = try await palmistryClient.analyze(
+            let response = try await palmistryClient.segment(
                 profileId: profile.id,
                 handSide: effectiveHandSide,
                 capturedAt: frame.capturedAt,
@@ -663,15 +778,39 @@ struct PalmistryView: View {
                 landmarks: frame.landmarks
             )
             result = response
+            isAnalyzing = false
+            if response.reportStatus == .pending {
+                do {
+                    try await palmistryClient.startReport(profileId: profile.id, readingId: response.id)
+                } catch {
+                    errorMessage = presentPalmistryError(error)
+                }
+                startReportPolling(profileId: profile.id, readingId: response.id)
+            } else {
+                showFullReport = response.isReportReady
+            }
+            return
         } catch {
-            errorMessage = error.localizedDescription
+            capturedImage = nil
+            errorMessage = presentPalmistryError(error)
             await detector.start()
         }
         isAnalyzing = false
     }
 
+    private func presentPalmistryError(_ error: Error) -> String {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return "未连接到手相服务，请在设置页检查后端服务地址后重试。\n\(error.localizedDescription)"
+        }
+        return error.localizedDescription
+    }
+
     private func resetForNewScan() {
+        reportPollingTask?.cancel()
         result = nil
+        capturedImage = nil
+        showFullReport = false
         errorMessage = nil
         askError = nil
         detector.resetStability()
@@ -695,7 +834,9 @@ struct PalmistryView: View {
         do {
             let full = try await palmistryClient.fetchResult(profileId: profile.id, readingId: item.id)
             await MainActor.run {
+                capturedImage = nil
                 result = full
+                showFullReport = full.isReportReady
                 showHistory = false
             }
         } catch {
@@ -706,6 +847,8 @@ struct PalmistryView: View {
     }
 
     private func askAI(for result: PalmistryResult, profile: UserProfile) async {
+        guard result.isReportReady else { return }
+        guard let analysis = result.analysis else { return }
         guard !isAskingAI else { return }
         isAskingAI = true
         askError = nil
@@ -729,8 +872,151 @@ struct PalmistryView: View {
         }
 
         await MainActor.run {
-            consultRouter.askAI(withPalmistryResult: result, profile: profile, chartText: chartText)
+            consultRouter.askAI(withPalmistryResult: PalmistryResult(
+                id: result.id,
+                profileId: result.profileId,
+                handSide: result.handSide,
+                takenAt: result.takenAt,
+                takenAtISO: result.takenAtISO,
+                originalImageURL: result.originalImageURL,
+                thumbnailURL: result.thumbnailURL,
+                overlays: result.overlays,
+                reportStatus: result.reportStatus,
+                reportError: result.reportError,
+                analysis: analysis
+            ), profile: profile, chartText: chartText)
         }
+    }
+
+    private func startReportPolling(profileId: UUID, readingId: String) {
+        reportPollingTask?.cancel()
+        reportPollingTask = Task {
+            for _ in 0..<24 {
+                if Task.isCancelled { return }
+                do {
+                    let payload = try await palmistryClient.fetchReportStatus(profileId: profileId, readingId: readingId)
+                    await MainActor.run {
+                        if let reading = payload.result {
+                            self.result = reading
+                            if reading.isReportReady {
+                                self.showFullReport = false
+                            }
+                        }
+                    }
+                    if payload.reportStatus == .ready || payload.reportStatus == .failed {
+                        return
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.errorMessage = error.localizedDescription
+                    }
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+            await MainActor.run {
+                if let current = self.result, current.reportStatus == .pending {
+                    self.result = PalmistryResult(
+                        id: current.id,
+                        profileId: current.profileId,
+                        handSide: current.handSide,
+                        takenAt: current.takenAt,
+                        takenAtISO: current.takenAtISO,
+                        originalImageURL: current.originalImageURL,
+                        thumbnailURL: current.thumbnailURL,
+                        overlays: current.overlays,
+                        reportStatus: .failed,
+                        reportError: "报告生成较慢，请稍后查看",
+                        analysis: current.analysis
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct PalmLineOverlayView: View {
+    let lines: [PalmLineOverlay]
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                ForEach(lines) { line in
+                    if line.points.count >= 2 {
+                        let path = Path { path in
+                            let first = line.points[0]
+                            path.move(to: CGPoint(x: first.x * proxy.size.width, y: first.y * proxy.size.height))
+                            for point in line.points.dropFirst() {
+                                path.addLine(to: CGPoint(x: point.x * proxy.size.width, y: point.y * proxy.size.height))
+                            }
+                        }
+                        path
+                            .stroke(Color(hex: line.colorHex).opacity(0.28), style: StrokeStyle(lineWidth: 14, lineCap: .round, lineJoin: .round))
+                        path
+                            .stroke(Color(hex: line.colorHex), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                        path
+                            .stroke(.white.opacity(0.55), style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct PalmResultMediaView: View {
+    let capturedImage: UIImage?
+    let remoteURL: URL?
+    let lines: [PalmLineOverlay]
+
+    var body: some View {
+        GeometryReader { proxy in
+            let bounds = CGRect(origin: .zero, size: proxy.size)
+            let aspectSize = capturedImage?.size ?? CGSize(width: 3, height: 4)
+            let fittedRect = AVMakeRect(aspectRatio: aspectSize, insideRect: bounds)
+
+            ZStack {
+                Color(red: 0.94, green: 0.88, blue: 0.83)
+
+                if let capturedImage {
+                    Image(uiImage: capturedImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .antialiased(true)
+                        .scaledToFit()
+                        .frame(width: fittedRect.width, height: fittedRect.height)
+                        .position(x: fittedRect.midX, y: fittedRect.midY)
+
+                    PalmLineOverlayView(lines: lines)
+                        .frame(width: fittedRect.width, height: fittedRect.height)
+                        .position(x: fittedRect.midX, y: fittedRect.midY)
+                } else if let remoteURL {
+                    AsyncImage(url: remoteURL) { phase in
+                        switch phase {
+                        case let .success(image):
+                            image
+                                .resizable()
+                                .interpolation(.high)
+                                .antialiased(true)
+                                .scaledToFit()
+                        case .failure:
+                            Color(red: 0.94, green: 0.88, blue: 0.83)
+                        case .empty:
+                            ProgressView()
+                        @unknown default:
+                            ProgressView()
+                        }
+                    }
+                    .frame(width: fittedRect.width, height: fittedRect.height)
+                    .position(x: fittedRect.midX, y: fittedRect.midY)
+
+                    PalmLineOverlayView(lines: lines)
+                        .frame(width: fittedRect.width, height: fittedRect.height)
+                        .position(x: fittedRect.midX, y: fittedRect.midY)
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -749,7 +1035,8 @@ private struct HandGuideOverlay: View {
                 path.addRect(CGRect(origin: .zero, size: size))
                 path.addPath(handPath)
             }
-            let glow = Color(red: 0.96, green: 0.82, blue: 0.56)
+            // 柔和的草绿色高亮，用于描边与扫描线
+            let glow = Color(red: 0.42, green: 0.76, blue: 0.54)
             let scanY = zone.minY + zone.height * (0.14 + scanProgress * 0.68)
 
             ZStack {
@@ -757,17 +1044,17 @@ private struct HandGuideOverlay: View {
                     .fill(Color.black.opacity(0.32), style: FillStyle(eoFill: true))
 
                 handPath
-                    .fill(Color.white.opacity(0.025))
+                    .fill(Color.white.opacity(0.020))
 
                 handPath
-                    .stroke(Color.white.opacity(0.14), lineWidth: 7)
+                    .stroke(glow.opacity(0.20), lineWidth: 7)
                     .blur(radius: 10)
 
                 handPath
-                    .stroke(Color.white.opacity(0.92), style: StrokeStyle(lineWidth: 3.2, lineCap: .round, lineJoin: .round, dash: [10, 8]))
+                    .stroke(glow.opacity(0.95), style: StrokeStyle(lineWidth: 2.8, lineCap: .round, lineJoin: .round, dash: [11, 7]))
 
                 handPath
-                    .stroke(glow.opacity(0.28), lineWidth: 1.2)
+                    .stroke(glow.opacity(0.55), lineWidth: 1.4)
                     .blur(radius: 2)
 
                 Rectangle()
@@ -784,14 +1071,14 @@ private struct HandGuideOverlay: View {
                             endPoint: .bottom
                         )
                     )
-                    .frame(width: zone.width * 0.74, height: 20)
+                    .frame(width: zone.width * 0.96, height: 20)
                     .position(x: zone.midX, y: scanY)
                     .mask { handPath.fill(Color.white) }
                     .blur(radius: 1.4)
 
                 Rectangle()
-                    .fill(glow.opacity(0.72))
-                    .frame(width: zone.width * 0.58, height: 2)
+                    .fill(glow.opacity(0.86))
+                    .frame(width: zone.width * 0.98, height: 2.2)
                     .position(x: zone.midX, y: scanY)
                     .mask { handPath.fill(Color.white) }
                     .shadow(color: glow.opacity(0.75), radius: 10)
@@ -847,7 +1134,97 @@ private enum PalmGuideGeometry {
     }
 
     static func visualPath(in rect: CGRect, thumbOnLeft: Bool) -> Path {
-        outlinePath(in: rect, thumbOnLeft: thumbOnLeft, expansion: 1.0)
+        func map(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            let mirroredX = thumbOnLeft ? x : 1 - x
+            return CGPoint(
+                x: rect.minX + mirroredX * rect.width,
+                y: rect.minY + y * rect.height
+            )
+        }
+
+        var path = Path()
+
+        // ── 手腕底部（起点）──
+        path.move(to: map(0.22, 0.99))
+
+        // ── 左侧手腕→掌根（更宽）──
+        path.addCurve(to: map(0.04, 0.74),
+                      control1: map(0.14, 0.99), control2: map(0.02, 0.88))
+
+        // ── 拇指（外侧边缘，斜向左下方约45°伸出）──
+        path.addCurve(to: map(-0.08, 0.58),
+                      control1: map(0.02, 0.70), control2: map(-0.04, 0.64))
+        path.addCurve(to: map(-0.14, 0.40),
+                      control1: map(-0.11, 0.52), control2: map(-0.14, 0.46))
+        // ── 拇指尖（圆润弧线）──
+        path.addCurve(to: map(-0.08, 0.30),
+                      control1: map(-0.14, 0.34), control2: map(-0.12, 0.30))
+        // ── 拇指（内侧边缘，回到掌面）──
+        path.addCurve(to: map(0.02, 0.36),
+                      control1: map(-0.04, 0.30), control2: map(-0.01, 0.32))
+        path.addCurve(to: map(0.10, 0.44),
+                      control1: map(0.04, 0.38), control2: map(0.07, 0.42))
+
+        // ── 虎口（位置低于小指指根 y=0.40）──
+        path.addCurve(to: map(0.16, 0.50),
+                      control1: map(0.12, 0.46), control2: map(0.14, 0.49))
+
+        // ── 食指（从虎口起始，向左微倾）──
+        path.addCurve(to: map(0.15, 0.04),
+                      control1: map(0.16, 0.40), control2: map(0.14, 0.12))
+        path.addCurve(to: map(0.25, 0.01),
+                      control1: map(0.16, -0.01), control2: map(0.20, -0.03))
+        path.addCurve(to: map(0.30, 0.34),
+                      control1: map(0.28, 0.04), control2: map(0.30, 0.22))
+
+        // ── 食指-中指指缝 ──
+        path.addCurve(to: map(0.35, 0.36),
+                      control1: map(0.30, 0.35), control2: map(0.33, 0.37))
+
+        // ── 中指（最长）──
+        path.addCurve(to: map(0.38, -0.04),
+                      control1: map(0.35, 0.26), control2: map(0.37, 0.04))
+        path.addCurve(to: map(0.49, -0.06),
+                      control1: map(0.39, -0.08), control2: map(0.44, -0.09))
+        path.addCurve(to: map(0.55, 0.34),
+                      control1: map(0.53, -0.04), control2: map(0.56, 0.18))
+
+        // ── 中指-无名指指缝 ──
+        path.addCurve(to: map(0.60, 0.36),
+                      control1: map(0.55, 0.35), control2: map(0.58, 0.37))
+
+        // ── 无名指（向右微倾）──
+        path.addCurve(to: map(0.64, 0.00),
+                      control1: map(0.60, 0.26), control2: map(0.63, 0.08))
+        path.addCurve(to: map(0.74, -0.01),
+                      control1: map(0.65, -0.04), control2: map(0.70, -0.05))
+        path.addCurve(to: map(0.78, 0.36),
+                      control1: map(0.77, 0.02), control2: map(0.79, 0.22))
+
+        // ── 无名指-小指指缝 ──
+        path.addCurve(to: map(0.82, 0.40),
+                      control1: map(0.78, 0.37), control2: map(0.80, 0.41))
+
+        // ── 小指（向右外倾）──
+        path.addCurve(to: map(0.87, 0.10),
+                      control1: map(0.82, 0.32), control2: map(0.86, 0.16))
+        path.addCurve(to: map(0.96, 0.09),
+                      control1: map(0.88, 0.05), control2: map(0.93, 0.04))
+        path.addCurve(to: map(0.97, 0.44),
+                      control1: map(0.98, 0.13), control2: map(0.98, 0.32))
+
+        // ── 右侧掌缘下行 ──
+        path.addCurve(to: map(0.94, 0.74),
+                      control1: map(0.97, 0.56), control2: map(0.96, 0.68))
+        path.addCurve(to: map(0.74, 0.99),
+                      control1: map(0.92, 0.86), control2: map(0.84, 0.98))
+
+        // ── 手腕底部（收窄）──
+        path.addCurve(to: map(0.22, 0.99),
+                      control1: map(0.58, 1.01), control2: map(0.36, 1.01))
+
+        path.closeSubpath()
+        return path
     }
 
     static func detectionPath(in rect: CGRect, thumbOnLeft: Bool) -> Path {
@@ -865,44 +1242,7 @@ private enum PalmGuideGeometry {
     }
 
     static func contains(_ point: CGPoint, thumbOnLeft: Bool) -> Bool {
-        detectionPath(in: CGRect(x: 0, y: 0, width: 1, height: 1), thumbOnLeft: thumbOnLeft).contains(point)
-    }
-
-    private static func outlinePath(in rect: CGRect, thumbOnLeft: Bool, expansion: CGFloat) -> Path {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-
-        func mapped(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            let mirroredX = thumbOnLeft ? x : 1 - x
-            let base = CGPoint(x: rect.minX + mirroredX * rect.width, y: rect.minY + y * rect.height)
-            let dx = (base.x - center.x) * expansion
-            let dy = (base.y - center.y) * expansion
-            return CGPoint(x: center.x + dx, y: center.y + dy)
-        }
-
-        var path = Path()
-        path.move(to: mapped(0.66, 0.98))
-        path.addCurve(to: mapped(0.34, 0.98), control1: mapped(0.57, 1.00), control2: mapped(0.44, 1.00))
-        path.addCurve(to: mapped(0.21, 0.84), control1: mapped(0.28, 0.96), control2: mapped(0.21, 0.91))
-        path.addCurve(to: mapped(0.17, 0.64), control1: mapped(0.20, 0.77), control2: mapped(0.17, 0.71))
-        path.addCurve(to: mapped(0.07, 0.56), control1: mapped(0.12, 0.61), control2: mapped(0.08, 0.60))
-        path.addCurve(to: mapped(0.12, 0.43), control1: mapped(0.03, 0.52), control2: mapped(0.03, 0.45))
-        path.addCurve(to: mapped(0.19, 0.35), control1: mapped(0.15, 0.40), control2: mapped(0.17, 0.37))
-        path.addCurve(to: mapped(0.22, 0.18), control1: mapped(0.20, 0.31), control2: mapped(0.19, 0.22))
-        path.addCurve(to: mapped(0.29, 0.13), control1: mapped(0.23, 0.14), control2: mapped(0.26, 0.12))
-        path.addCurve(to: mapped(0.32, 0.31), control1: mapped(0.31, 0.14), control2: mapped(0.34, 0.25))
-        path.addCurve(to: mapped(0.40, 0.07), control1: mapped(0.31, 0.23), control2: mapped(0.34, 0.10))
-        path.addCurve(to: mapped(0.48, 0.04), control1: mapped(0.42, 0.04), control2: mapped(0.45, 0.03))
-        path.addCurve(to: mapped(0.52, 0.31), control1: mapped(0.52, 0.07), control2: mapped(0.54, 0.24))
-        path.addCurve(to: mapped(0.60, 0.10), control1: mapped(0.51, 0.23), control2: mapped(0.54, 0.11))
-        path.addCurve(to: mapped(0.67, 0.08), control1: mapped(0.62, 0.07), control2: mapped(0.65, 0.07))
-        path.addCurve(to: mapped(0.70, 0.33), control1: mapped(0.70, 0.11), control2: mapped(0.72, 0.26))
-        path.addCurve(to: mapped(0.78, 0.18), control1: mapped(0.69, 0.27), control2: mapped(0.73, 0.18))
-        path.addCurve(to: mapped(0.85, 0.21), control1: mapped(0.80, 0.16), control2: mapped(0.84, 0.17))
-        path.addCurve(to: mapped(0.84, 0.47), control1: mapped(0.86, 0.26), control2: mapped(0.86, 0.38))
-        path.addCurve(to: mapped(0.82, 0.78), control1: mapped(0.84, 0.58), control2: mapped(0.86, 0.71))
-        path.addCurve(to: mapped(0.66, 0.98), control1: mapped(0.80, 0.90), control2: mapped(0.74, 0.98))
-        path.closeSubpath()
-        return path
+        visualPath(in: CGRect(x: 0, y: 0, width: 1, height: 1), thumbOnLeft: thumbOnLeft).contains(point)
     }
 
     private static func detectionComponents(in rect: CGRect, thumbOnLeft: Bool) -> [Component] {
@@ -917,13 +1257,13 @@ private enum PalmGuideGeometry {
         }
 
         return [
-            Component(rect: orient(0.26, 0.35, 0.48, 0.42), rotation: 0),
-            Component(rect: orient(0.32, 0.73, 0.34, 0.19), rotation: 0),
-            Component(rect: orient(0.11, 0.38, 0.18, 0.28), rotation: thumbOnLeft ? -0.78 : 0.78),
-            Component(rect: orient(0.20, 0.12, 0.13, 0.33), rotation: thumbOnLeft ? -0.04 : 0.04),
-            Component(rect: orient(0.35, 0.05, 0.13, 0.39), rotation: 0),
-            Component(rect: orient(0.50, 0.09, 0.12, 0.35), rotation: thumbOnLeft ? 0.03 : -0.03),
-            Component(rect: orient(0.63, 0.16, 0.11, 0.27), rotation: thumbOnLeft ? 0.06 : -0.06)
+            Component(rect: orient(0.27, 0.35, 0.47, 0.42), rotation: 0),
+            Component(rect: orient(0.33, 0.74, 0.32, 0.18), rotation: 0),
+            Component(rect: orient(0.10, 0.36, 0.17, 0.27), rotation: thumbOnLeft ? -0.70 : 0.70),
+            Component(rect: orient(0.21, 0.12, 0.12, 0.31), rotation: thumbOnLeft ? -0.04 : 0.04),
+            Component(rect: orient(0.36, 0.05, 0.12, 0.38), rotation: 0),
+            Component(rect: orient(0.50, 0.09, 0.11, 0.34), rotation: thumbOnLeft ? 0.03 : -0.03),
+            Component(rect: orient(0.63, 0.16, 0.10, 0.26), rotation: thumbOnLeft ? 0.06 : -0.06)
         ]
     }
 }
@@ -954,6 +1294,9 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
     @Published private(set) var guidanceText: String = "将整只手放入引导框，稳定后会自动拍照"
     @Published private(set) var statusText: String = "等待识别"
     @Published private(set) var stabilityProgress: Double = 0
+    @Published private(set) var stableFrameCount: Int = 0
+    @Published private(set) var stableHoldDuration: Double = 0
+    @Published private(set) var validationReasons: [String] = []
     @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
     @Published private(set) var isSwitchingCamera: Bool = false
 
@@ -970,16 +1313,21 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
     private var didConfigure = false
     private var frameCounter = 0
     private var stableCount = 0
+    private var stableSince: CFTimeInterval?
     private var isCapturing = false
-    private let requiredStableCount = 5
+    private let requiredStableDuration: CFTimeInterval = 1.2
     private let detectionZone = CGRect(x: 0.10, y: 0.05, width: 0.80, height: 0.88)
+
+    var stableHoldDurationText: String {
+        String(format: "%.1f/%.1f 秒", stableHoldDuration, requiredStableDuration)
+    }
 
     var isUsingFrontCamera: Bool {
         cameraPosition == .front
     }
 
     var guideThumbOnLeft: Bool {
-        cameraPosition == .front ? expectedHandSide == .left : expectedHandSide == .right
+        cameraPosition == .front ? expectedHandSide == .right : expectedHandSide == .left
     }
 
     func prepareIfNeeded(position: AVCaptureDevice.Position) {
@@ -1126,42 +1474,58 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
     func resetStability() {
         stableCount = 0
         frameCounter = 0
+        stableSince = nil
         isCapturing = false
         stabilityProgress = 0
-        guidanceText = "将整只手放入引导框，稳定后会自动拍照"
+        stableFrameCount = 0
+        stableHoldDuration = 0
+        validationReasons = []
+        guidanceText = "识别到完整手掌后会自动拍照"
         statusText = "等待识别"
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         frameCounter += 1
-        if frameCounter % 2 != 0 { return }
         if isCapturing { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         let request = VNDetectHumanHandPoseRequest()
         request.maximumHandCount = 1
-        let handler = VNImageRequestHandler(cmSampleBuffer: sampleBuffer, orientation: cameraPosition == .front ? .leftMirrored : .right, options: [:])
+        let handler = VNImageRequestHandler(
+            cmSampleBuffer: sampleBuffer,
+            orientation: cameraPosition == .front ? .upMirrored : .up,
+            options: [:]
+        )
         do {
             try handler.perform([request])
             let observations = request.results ?? []
             guard let observation = observations.first else {
-                markInvalid("请把掌心对准引导框，避免背景干扰")
+                markInvalid("请把整只手放入画面中，避免背景干扰")
                 return
             }
             let recognition = try observation.recognizedPoints(.all)
             let payload = selectedLandmarks(from: recognition)
-            guard isComplete(points: payload) else {
-                markInvalid("请把手掌再靠近一些，并让五指略微张开")
+            let reasons = validationErrors(points: payload)
+            guard reasons.isEmpty else {
+                markInvalid("请把整只手放入画面中，露出手腕，并让五指自然张开", reasons: reasons)
                 return
             }
             stableCount += 1
-            let progress = min(1.0, Double(stableCount) / Double(requiredStableCount))
+            let now = CACurrentMediaTime()
+            if stableSince == nil {
+                stableSince = now
+            }
+            let elapsed = max(0, now - (stableSince ?? now))
+            let progress = min(1.0, elapsed / requiredStableDuration)
             DispatchQueue.main.async {
                 self.stabilityProgress = progress
+                self.stableFrameCount = self.stableCount
+                self.stableHoldDuration = elapsed
+                self.validationReasons = []
                 self.statusText = progress >= 1 ? "已锁定" : "识别中"
-                self.guidanceText = progress >= 1 ? "保持稳定，正在自动拍照" : "保持手掌清晰且完整"
+                self.guidanceText = progress >= 1 ? "已识别到完整手掌，正在自动拍照" : "已识别到完整手掌，请保持 1 秒稳定"
             }
-            guard stableCount >= requiredStableCount else { return }
+            guard elapsed >= requiredStableDuration else { return }
             isCapturing = true
             guard let image = makeImage(from: pixelBuffer) else {
                 markInvalid("拍照失败，请重试")
@@ -1173,14 +1537,14 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
                 self.onCapture?(frame)
             }
         } catch {
-            markInvalid("识别中，请调整光线和手掌位置")
+            markInvalid("识别中，请调整光线和手掌位置", reasons: ["手部关键点识别不稳定", "请增加光线或降低背景干扰"])
         }
     }
 
     private func selectedLandmarks(from points: [VNHumanHandPoseObservation.JointName: VNRecognizedPoint]) -> [String: PalmLandmarkPoint] {
         let keys: [(String, VNHumanHandPoseObservation.JointName)] = [
             ("VNHLKWrist", .wrist),
-            ("VNHLKThumbTip", .thumbTip), ("VNHLKThumbIP", .thumbIP), ("VNHLKThumbMP", .thumbMP),
+            ("VNHLKThumbTip", .thumbTip), ("VNHLKThumbIP", .thumbIP), ("VNHLKThumbMP", .thumbMP), ("VNHLKThumbCMC", .thumbCMC),
             ("VNHLKIndexTip", .indexTip), ("VNHLKIndexDIP", .indexDIP), ("VNHLKIndexPIP", .indexPIP), ("VNHLKIndexMCP", .indexMCP),
             ("VNHLKMiddleTip", .middleTip), ("VNHLKMiddleDIP", .middleDIP), ("VNHLKMiddlePIP", .middlePIP), ("VNHLKMiddleMCP", .middleMCP),
             ("VNHLKRingTip", .ringTip), ("VNHLKRingDIP", .ringDIP), ("VNHLKRingPIP", .ringPIP), ("VNHLKRingMCP", .ringMCP),
@@ -1194,9 +1558,12 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
         return output
     }
 
-    private func isComplete(points: [String: PalmLandmarkPoint]) -> Bool {
+    private func validationErrors(points: [String: PalmLandmarkPoint]) -> [String] {
+        var reasons: [String] = []
         let requiredKeys = [
             "VNHLKWrist",
+            "VNHLKThumbCMC",
+            "VNHLKThumbMP",
             "VNHLKThumbTip",
             "VNHLKIndexTip",
             "VNHLKMiddleTip",
@@ -1207,47 +1574,94 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
             "VNHLKRingMCP",
             "VNHLKLittleMCP"
         ]
-        let requiredPoints = requiredKeys.compactMap { points[$0] }
-        guard requiredPoints.count == requiredKeys.count else { return false }
-        guard requiredPoints.allSatisfy({ $0.confidence > 0.06 }) else { return false }
-        for point in requiredPoints {
-            guard PalmGuideGeometry.contains(CGPoint(x: point.x, y: point.y), thumbOnLeft: guideThumbOnLeft) else {
-                return false
+        let missingKeys = requiredKeys.filter { points[$0] == nil }
+        if !missingKeys.isEmpty {
+            if missingKeys.contains("VNHLKWrist") {
+                reasons.append("手腕没有完整入框")
             }
+            if missingKeys.contains("VNHLKThumbTip") || missingKeys.contains("VNHLKThumbCMC") {
+                reasons.append("大拇指识别不完整")
+            }
+            if missingKeys.contains("VNHLKIndexTip") || missingKeys.contains("VNHLKMiddleTip") || missingKeys.contains("VNHLKRingTip") || missingKeys.contains("VNHLKLittleTip") {
+                reasons.append("五指没有完整识别")
+            }
+            return Array(reasons.prefix(3))
+        }
+        let requiredPoints = requiredKeys.compactMap { points[$0] }
+        if !requiredPoints.allSatisfy({ $0.confidence > 0.05 }) {
+            reasons.append("手部关键点识别不稳定")
+        }
+
+        guard
+            let wrist = points["VNHLKWrist"],
+            let indexMCP = points["VNHLKIndexMCP"],
+            let middleMCP = points["VNHLKMiddleMCP"],
+            let ringMCP = points["VNHLKRingMCP"],
+            let littleMCP = points["VNHLKLittleMCP"],
+            let thumbCMC = points["VNHLKThumbCMC"],
+            let thumbMP = points["VNHLKThumbMP"]
+        else { return ["掌心关键点缺失"] }
+
+        let palmCenter = CGPoint(
+            x: CGFloat((indexMCP.x + middleMCP.x + ringMCP.x + littleMCP.x + wrist.x) / 5),
+            y: CGFloat((indexMCP.y + middleMCP.y + ringMCP.y + littleMCP.y + wrist.y) / 5)
+        )
+        let thumbBase = CGPoint(
+            x: CGFloat((thumbCMC.x + thumbMP.x) / 2),
+            y: CGFloat((thumbCMC.y + thumbMP.y) / 2)
+        )
+        let centerInScreen = palmCenter.x > 0.05 && palmCenter.x < 0.95 && palmCenter.y > 0.05 && palmCenter.y < 0.95
+        if !centerInScreen {
+            reasons.append("掌心没有完整进入画面")
+        }
+        let thumbBaseInScreen = thumbBase.x > 0.02 && thumbBase.x < 0.98 && thumbBase.y > 0.02 && thumbBase.y < 0.98
+        if !thumbBaseInScreen {
+            reasons.append("大拇指根部没有完整进入画面")
         }
 
         let xs = requiredPoints.map { $0.x }
         let ys = requiredPoints.map { $0.y }
-        guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else { return false }
-        let bbox = CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX), height: CGFloat(maxY - minY))
-        guard bbox.width > 0.11, bbox.height > 0.18 else { return false }
-        guard detectionZone.contains(CGPoint(x: bbox.midX, y: bbox.midY)) else { return false }
-        guard bbox.minX >= detectionZone.minX - 0.12,
-              bbox.maxX <= detectionZone.maxX + 0.12,
-              bbox.minY >= detectionZone.minY - 0.12,
-              bbox.maxY <= detectionZone.maxY + 0.12 else {
-            return false
+        guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else {
+            return ["手部轮廓范围计算失败"]
         }
-        guard let wrist = points["VNHLKWrist"] else { return false }
+        let bbox = CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX), height: CGFloat(maxY - minY))
+        if !(bbox.width > 0.08 && bbox.height > 0.16) {
+            reasons.append("手离镜头太远，请再靠近一些")
+        }
+        if !(bbox.minX >= -0.03 &&
+             bbox.maxX <= 1.03 &&
+             bbox.minY >= -0.03 &&
+             bbox.maxY <= 1.03) {
+            reasons.append("整只手需要完整出现在画面里")
+        }
         let fingerTips = [
             points["VNHLKIndexTip"],
             points["VNHLKMiddleTip"],
             points["VNHLKRingTip"],
             points["VNHLKLittleTip"]
         ].compactMap { $0 }
-        let averageTipY = fingerTips.map { $0.y }.reduce(0, +) / Double(fingerTips.count)
-        guard averageTipY > wrist.y + 0.015 else { return false }
         let tipSpread = (fingerTips.map { $0.x }.max() ?? 0) - (fingerTips.map { $0.x }.min() ?? 0)
-        guard tipSpread > 0.045 else { return false }
-        return true
+        if !(tipSpread > 0.035) {
+            reasons.append("五指还需要再自然张开一些")
+        }
+        let mcpSpread = max(indexMCP.x, middleMCP.x, ringMCP.x, littleMCP.x) - min(indexMCP.x, middleMCP.x, ringMCP.x, littleMCP.x)
+        if !(mcpSpread > 0.10) {
+            reasons.append("掌根区域展开不够，请放松手掌")
+        }
+        let unique = Array(NSOrderedSet(array: reasons).array as? [String] ?? reasons)
+        return Array(unique.prefix(3))
     }
 
-    private func markInvalid(_ guidance: String) {
-        stableCount = max(0, stableCount - 2)
+    private func markInvalid(_ guidance: String, reasons: [String] = []) {
+        stableCount = 0
+        stableSince = nil
         DispatchQueue.main.async {
-            self.stabilityProgress = min(1.0, Double(self.stableCount) / Double(self.requiredStableCount))
+            self.stabilityProgress = 0
+            self.stableFrameCount = self.stableCount
+            self.stableHoldDuration = 0
             self.statusText = "调整中"
             self.guidanceText = guidance
+            self.validationReasons = Array(reasons.prefix(3))
         }
     }
 
@@ -1256,10 +1670,157 @@ private final class PalmCaptureDetector: NSObject, ObservableObject, AVCaptureVi
         guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
             return nil
         }
-        return UIImage(
+        let orientedImage = UIImage(
             cgImage: cgImage,
             scale: 1,
-            orientation: cameraPosition == .front ? .leftMirrored : .right
+            orientation: cameraPosition == .front ? .upMirrored : .up
         )
+        return orientedImage.normalizedForDisplay()
+    }
+}
+
+private enum PalmOverlayEstimator {
+    static func build(from landmarks: [String: PalmLandmarkPoint], handSide: PalmHandSide) -> [PalmLineOverlay] {
+        guard
+            let wrist = point(landmarks, "VNHLKWrist"),
+            let indexMCP = point(landmarks, "VNHLKIndexMCP"),
+            let middleMCP = point(landmarks, "VNHLKMiddleMCP"),
+            let ringMCP = point(landmarks, "VNHLKRingMCP"),
+            let littleMCP = point(landmarks, "VNHLKLittleMCP"),
+            let indexPIP = point(landmarks, "VNHLKIndexPIP"),
+            let middlePIP = point(landmarks, "VNHLKMiddlePIP"),
+            let ringPIP = point(landmarks, "VNHLKRingPIP"),
+            let littlePIP = point(landmarks, "VNHLKLittlePIP"),
+            let thumbCMC = point(landmarks, "VNHLKThumbCMC"),
+            let thumbMP = point(landmarks, "VNHLKThumbMP")
+        else {
+            return []
+        }
+
+        let palmWidth = max(abs(littleMCP.x - indexMCP.x), 0.12)
+        let palmHeight = max(abs(wrist.y - middleMCP.y), 0.18)
+        let centerX = (indexMCP.x + middleMCP.x + ringMCP.x + littleMCP.x) / 4
+        let thumbOnLeft = thumbCMC.x < centerX
+
+        let outerMCP = thumbOnLeft ? littleMCP : indexMCP
+        let innerMCP = thumbOnLeft ? indexMCP : littleMCP
+        let outerPIP = thumbOnLeft ? littlePIP : indexPIP
+        let innerPIP = thumbOnLeft ? indexPIP : littlePIP
+        let lifeDirection: CGFloat = thumbOnLeft ? -1 : 1
+
+        let heart = cubicPoints(
+            from: [
+                CGPoint(x: outerPIP.x + palmWidth * (thumbOnLeft ? 0.06 : -0.06), y: outerMCP.y + palmHeight * 0.02),
+                CGPoint(x: ringPIP.x, y: ringMCP.y + palmHeight * 0.06),
+                CGPoint(x: middlePIP.x, y: middleMCP.y + palmHeight * 0.06),
+                CGPoint(x: innerPIP.x + palmWidth * (thumbOnLeft ? -0.02 : 0.02), y: innerMCP.y + palmHeight * 0.02)
+            ],
+            samples: 22
+        )
+        let head = cubicPoints(
+            from: [
+                CGPoint(x: innerMCP.x + palmWidth * 0.04 * lifeDirection, y: innerMCP.y + palmHeight * 0.12),
+                CGPoint(x: middleMCP.x + palmWidth * 0.05 * lifeDirection, y: middleMCP.y + palmHeight * 0.18),
+                CGPoint(x: ringMCP.x + palmWidth * 0.02 * lifeDirection, y: ringMCP.y + palmHeight * 0.24),
+                CGPoint(x: outerMCP.x + palmWidth * 0.04 * (thumbOnLeft ? 1 : -1), y: outerMCP.y + palmHeight * 0.26)
+            ],
+            samples: 22
+        )
+        let career = cubicPoints(
+            from: [
+                CGPoint(x: centerX - palmWidth * 0.01, y: wrist.y - palmHeight * 0.05),
+                CGPoint(x: centerX - palmWidth * 0.02, y: wrist.y - palmHeight * 0.26),
+                CGPoint(x: centerX + palmWidth * 0.00, y: middleMCP.y + palmHeight * 0.26),
+                CGPoint(x: centerX + palmWidth * 0.01, y: middleMCP.y + palmHeight * 0.02)
+            ],
+            samples: 20
+        )
+        let life = cubicPoints(
+            from: [
+                CGPoint(x: innerMCP.x + palmWidth * 0.02 * lifeDirection, y: innerMCP.y + palmHeight * 0.04),
+                CGPoint(x: thumbCMC.x + palmWidth * 0.16 * lifeDirection, y: thumbCMC.y + palmHeight * 0.10),
+                CGPoint(x: thumbMP.x + palmWidth * 0.18 * lifeDirection, y: wrist.y - palmHeight * 0.16),
+                CGPoint(x: centerX + palmWidth * 0.24 * lifeDirection, y: wrist.y - palmHeight * 0.04)
+            ],
+            samples: 24
+        )
+
+        return [
+            PalmLineOverlay(key: "heart_line", title: "爱情线", colorHex: "FF7A95", confidence: 0.8, points: heart),
+            PalmLineOverlay(key: "head_line", title: "智慧线", colorHex: "7B8CFF", confidence: 0.78, points: head),
+            PalmLineOverlay(key: "career_line", title: "事业线", colorHex: "F6C453", confidence: 0.76, points: career),
+            PalmLineOverlay(key: "life_line", title: "生命线", colorHex: "53D3A6", confidence: 0.84, points: life)
+        ]
+    }
+
+    private static func point(_ landmarks: [String: PalmLandmarkPoint], _ key: String) -> CGPoint? {
+        guard let point = landmarks[key] else { return nil }
+        return CGPoint(x: point.x, y: 1 - point.y)
+    }
+
+    private static func cubicPoints(from anchors: [CGPoint], samples: Int) -> [PalmOverlayPoint] {
+        guard anchors.count == 4 else { return [] }
+        return (0..<samples).map { index in
+            let t = CGFloat(index) / CGFloat(max(samples - 1, 1))
+            let point = cubicPoint(anchors[0], anchors[1], anchors[2], anchors[3], t)
+            return PalmOverlayPoint(
+                x: max(0, min(1, point.x)),
+                y: max(0, min(1, point.y))
+            )
+        }
+    }
+
+    private static func cubicPoint(_ p0: CGPoint, _ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint, _ t: CGFloat) -> CGPoint {
+        let inv = 1 - t
+        let x = inv * inv * inv * p0.x
+            + 3 * inv * inv * t * p1.x
+            + 3 * inv * t * t * p2.x
+            + t * t * t * p3.x
+        let y = inv * inv * inv * p0.y
+            + 3 * inv * inv * t * p1.y
+            + 3 * inv * t * t * p2.y
+            + t * t * t * p3.y
+        return CGPoint(x: x, y: y)
+    }
+}
+
+private extension Color {
+    init(hex: String) {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var value: UInt64 = 0
+        Scanner(string: cleaned).scanHexInt64(&value)
+        let r, g, b: Double
+        switch cleaned.count {
+        case 6:
+            r = Double((value >> 16) & 0xFF) / 255
+            g = Double((value >> 8) & 0xFF) / 255
+            b = Double(value & 0xFF) / 255
+        default:
+            r = 1
+            g = 1
+            b = 1
+        }
+        self.init(red: r, green: g, blue: b)
+    }
+}
+
+private extension UIImage {
+    func normalizedForDisplay() -> UIImage {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let drawSize: CGSize
+        switch imageOrientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            drawSize = CGSize(width: size.height, height: size.width)
+        default:
+            drawSize = size
+        }
+        let renderer = UIGraphicsImageRenderer(size: drawSize, format: format)
+        return renderer.image { _ in
+            UIColor.black.setFill()
+            UIBezierPath(rect: CGRect(origin: .zero, size: drawSize)).fill()
+            draw(in: CGRect(origin: .zero, size: drawSize))
+        }
     }
 }

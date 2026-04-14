@@ -9,6 +9,7 @@ import random
 import socket
 import ssl
 import statistics
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -29,6 +30,14 @@ try:
     import mediapipe as mp
 except Exception:  # noqa: BLE001
     mp = None
+
+try:
+    from palm_segmentation import palm_line_segmenter
+except Exception as exc:  # noqa: BLE001
+    palm_line_segmenter = None
+    PALM_SEGMENTATION_IMPORT_ERROR = str(exc)
+else:
+    PALM_SEGMENTATION_IMPORT_ERROR = None
 
 BASE_DIR = os.path.dirname(__file__)
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -266,6 +275,11 @@ def init_db():
                 ON palm_readings (profile_id, taken_at DESC);
                 """
             )
+            cur.execute("ALTER TABLE palm_readings ADD COLUMN IF NOT EXISTS report_status text NOT NULL DEFAULT 'ready';")
+            cur.execute("ALTER TABLE palm_readings ADD COLUMN IF NOT EXISTS report_error text;")
+            cur.execute("ALTER TABLE palm_readings ADD COLUMN IF NOT EXISTS report_requested_at timestamptz;")
+            cur.execute("ALTER TABLE palm_readings ADD COLUMN IF NOT EXISTS report_generated_at timestamptz;")
+            cur.execute("UPDATE palm_readings SET report_status = 'ready' WHERE report_status IS NULL OR report_status = '';")
             cur.execute(
                 """
                 ALTER TABLE one_thing_divinations
@@ -1505,6 +1519,292 @@ def _compose_palmistry_structure(image, landmarks):
     return _extract_palmistry_from_image(image), "image_heuristic"
 
 
+def _clamp01(value):
+    return max(0.0, min(float(value), 1.0))
+
+
+def _landmark_image_point(landmarks, key, width, height):
+    point = _extract_landmark_point(landmarks, key)
+    if not point:
+        return None
+    return (
+        _clamp01(point["x"]) * width,
+        _clamp01(1 - point["y"]) * height,
+    )
+
+
+def _bezier_point(p0, p1, p2, p3, t):
+    inv = 1 - t
+    x = inv ** 3 * p0[0] + 3 * inv * inv * t * p1[0] + 3 * inv * t * t * p2[0] + t ** 3 * p3[0]
+    y = inv ** 3 * p0[1] + 3 * inv * inv * t * p1[1] + 3 * inv * t * t * p2[1] + t ** 3 * p3[1]
+    return (x, y)
+
+
+def _sample_darkest_near(gray, x, y, radius=14):
+    width, height = gray.size
+    px = gray.load()
+    best = (x, y)
+    best_score = -10**9
+    min_x = max(0, int(x - radius))
+    max_x = min(width - 1, int(x + radius))
+    min_y = max(0, int(y - radius))
+    max_y = min(height - 1, int(y + radius))
+    for iy in range(min_y, max_y + 1):
+        for ix in range(min_x, max_x + 1):
+            darkness = 255 - px[ix, iy]
+            distance_penalty = ((ix - x) ** 2 + (iy - y) ** 2) ** 0.5 * 1.8
+            score = darkness - distance_penalty
+            if score > best_score:
+                best_score = score
+                best = (ix, iy)
+    return best
+
+
+def _smooth_points(points, width, height):
+    if len(points) <= 2:
+        return points
+    smoothed = []
+    for index in range(len(points)):
+        left = max(0, index - 1)
+        right = min(len(points), index + 2)
+        window = points[left:right]
+        x = sum(p[0] for p in window) / len(window)
+        y = sum(p[1] for p in window) / len(window)
+        smoothed.append((_clamp01(x / width), _clamp01(y / height)))
+    return smoothed
+
+
+def _trace_curve(gray, anchors, samples=24, radius=14):
+    width, height = gray.size
+    points = []
+    for idx in range(samples):
+        t = idx / max(samples - 1, 1)
+        expected = _bezier_point(anchors[0], anchors[1], anchors[2], anchors[3], t)
+        sampled = _sample_darkest_near(gray, expected[0], expected[1], radius=radius)
+        points.append(sampled)
+    return _smooth_points(points, width, height)
+
+
+def _trace_curve_or_fallback(gray, anchors, width, height, samples=24, radius=8, max_offset_ratio=0.045):
+    traced = _trace_curve(gray, anchors, samples=samples, radius=radius)
+    expected = _fallback_curve(anchors, width, height, samples=samples)
+    if len(traced) != len(expected):
+        return expected
+    max_offset = min(width, height) * max_offset_ratio
+    total = 0.0
+    for traced_point, expected_point in zip(traced, expected):
+        dx = traced_point[0] * width - expected_point[0] * width
+        dy = traced_point[1] * height - expected_point[1] * height
+        total += (dx * dx + dy * dy) ** 0.5
+    avg_offset = total / max(len(traced), 1)
+    return traced if avg_offset <= max_offset else expected
+
+
+def _fallback_curve(anchors, width, height, samples=24):
+    points = []
+    for idx in range(samples):
+        t = idx / max(samples - 1, 1)
+        x, y = _bezier_point(anchors[0], anchors[1], anchors[2], anchors[3], t)
+        points.append((_clamp01(x / width), _clamp01(y / height)))
+    return points
+
+
+def _default_line_overlays(width, height):
+    return [
+        {
+            "key": "heart_line",
+            "title": "爱情线",
+            "colorHex": "FF7A95",
+            "confidence": 0.42,
+            "points": _fallback_curve(
+                [
+                    (0.18 * width, 0.32 * height),
+                    (0.36 * width, 0.25 * height),
+                    (0.62 * width, 0.23 * height),
+                    (0.84 * width, 0.30 * height),
+                ],
+                width,
+                height,
+            ),
+        },
+        {
+            "key": "head_line",
+            "title": "智慧线",
+            "colorHex": "7B8CFF",
+            "confidence": 0.4,
+            "points": _fallback_curve(
+                [
+                    (0.32 * width, 0.40 * height),
+                    (0.44 * width, 0.46 * height),
+                    (0.62 * width, 0.50 * height),
+                    (0.80 * width, 0.54 * height),
+                ],
+                width,
+                height,
+            ),
+        },
+        {
+            "key": "career_line",
+            "title": "事业线",
+            "colorHex": "F6C453",
+            "confidence": 0.36,
+            "points": _fallback_curve(
+                [
+                    (0.50 * width, 0.82 * height),
+                    (0.52 * width, 0.66 * height),
+                    (0.53 * width, 0.50 * height),
+                    (0.56 * width, 0.34 * height),
+                ],
+                width,
+                height,
+            ),
+        },
+        {
+            "key": "life_line",
+            "title": "生命线",
+            "colorHex": "53D3A6",
+            "confidence": 0.4,
+            "points": _fallback_curve(
+                [
+                    (0.36 * width, 0.28 * height),
+                    (0.16 * width, 0.36 * height),
+                    (0.14 * width, 0.66 * height),
+                    (0.34 * width, 0.87 * height),
+                ],
+                width,
+                height,
+            ),
+        },
+    ]
+
+
+def _build_geometric_palm_line_overlays(image, landmarks, hand_side):
+    width, height = image.size
+    wrist = _landmark_image_point(landmarks, "VNHLKWrist", width, height)
+    index_mcp = _landmark_image_point(landmarks, "VNHLKIndexMCP", width, height)
+    middle_mcp = _landmark_image_point(landmarks, "VNHLKMiddleMCP", width, height)
+    ring_mcp = _landmark_image_point(landmarks, "VNHLKRingMCP", width, height)
+    little_mcp = _landmark_image_point(landmarks, "VNHLKLittleMCP", width, height)
+    index_pip = _landmark_image_point(landmarks, "VNHLKIndexPIP", width, height)
+    middle_pip = _landmark_image_point(landmarks, "VNHLKMiddlePIP", width, height)
+    ring_pip = _landmark_image_point(landmarks, "VNHLKRingPIP", width, height)
+    little_pip = _landmark_image_point(landmarks, "VNHLKLittlePIP", width, height)
+    thumb_cmc = _landmark_image_point(landmarks, "VNHLKThumbCMC", width, height)
+    thumb_mp = _landmark_image_point(landmarks, "VNHLKThumbMP", width, height)
+    if not all([wrist, index_mcp, middle_mcp, ring_mcp, little_mcp, index_pip, middle_pip, ring_pip, little_pip, thumb_cmc, thumb_mp]):
+        return _default_line_overlays(width, height)
+
+    palm_width = max(abs(little_mcp[0] - index_mcp[0]), width * 0.12)
+    palm_height = max(abs(wrist[1] - middle_mcp[1]), height * 0.18)
+    center_x = (index_mcp[0] + middle_mcp[0] + ring_mcp[0] + little_mcp[0]) / 4
+    thumb_on_left = thumb_cmc[0] < center_x
+
+    outer_mcp = little_mcp if thumb_on_left else index_mcp
+    inner_mcp = index_mcp if thumb_on_left else little_mcp
+    outer_pip = little_pip if thumb_on_left else index_pip
+    inner_pip = index_pip if thumb_on_left else little_pip
+    life_dir = -1 if thumb_on_left else 1
+
+    heart_anchors = [
+        (outer_pip[0] + palm_width * (0.06 if thumb_on_left else -0.06), outer_mcp[1] + palm_height * 0.02),
+        (ring_pip[0], ring_mcp[1] + palm_height * 0.06),
+        (middle_pip[0], middle_mcp[1] + palm_height * 0.06),
+        (inner_pip[0] + palm_width * (-0.02 if thumb_on_left else 0.02), inner_mcp[1] + palm_height * 0.02),
+    ]
+    head_anchors = [
+        (inner_mcp[0] + palm_width * 0.04 * life_dir, inner_mcp[1] + palm_height * 0.12),
+        (middle_mcp[0] + palm_width * 0.05 * life_dir, middle_mcp[1] + palm_height * 0.18),
+        (ring_mcp[0] + palm_width * 0.02 * life_dir, ring_mcp[1] + palm_height * 0.24),
+        (outer_mcp[0] + palm_width * 0.04 * (1 if thumb_on_left else -1), outer_mcp[1] + palm_height * 0.26),
+    ]
+    career_anchors = [
+        (center_x - palm_width * 0.01, wrist[1] - palm_height * 0.05),
+        (center_x - palm_width * 0.02, wrist[1] - palm_height * 0.26),
+        (center_x + palm_width * 0.00, middle_mcp[1] + palm_height * 0.26),
+        (center_x + palm_width * 0.01, middle_mcp[1] + palm_height * 0.02),
+    ]
+    life_anchors = [
+        (inner_mcp[0] + palm_width * 0.02 * life_dir, inner_mcp[1] + palm_height * 0.04),
+        (thumb_cmc[0] + palm_width * 0.16 * life_dir, thumb_cmc[1] + palm_height * 0.10),
+        (thumb_mp[0] + palm_width * 0.18 * life_dir, wrist[1] - palm_height * 0.16),
+        (center_x + palm_width * 0.24 * life_dir, wrist[1] - palm_height * 0.04),
+    ]
+
+    return [
+        {
+            "key": "heart_line",
+            "title": "爱情线",
+            "colorHex": "FF7A95",
+            "confidence": 0.78,
+            "points": _fallback_curve(heart_anchors, width, height, samples=22),
+        },
+        {
+            "key": "head_line",
+            "title": "智慧线",
+            "colorHex": "7B8CFF",
+            "confidence": 0.78,
+            "points": _fallback_curve(head_anchors, width, height, samples=22),
+        },
+        {
+            "key": "career_line",
+            "title": "事业线",
+            "colorHex": "F6C453",
+            "confidence": 0.72,
+            "points": _fallback_curve(career_anchors, width, height, samples=20),
+        },
+        {
+            "key": "life_line",
+            "title": "生命线",
+            "colorHex": "53D3A6",
+            "confidence": 0.82,
+            "points": _fallback_curve(life_anchors, width, height, samples=24),
+        },
+    ]
+
+
+def _build_palm_line_overlays(image, landmarks, hand_side):
+    if palm_line_segmenter is not None:
+        try:
+            model_overlays = palm_line_segmenter.build_overlays(image, landmarks)
+            if _has_valid_palm_line_overlays(model_overlays):
+                return model_overlays
+        except Exception as exc:  # noqa: BLE001
+            print(f"[palmistry_model_segment_error] {exc}")
+    elif PALM_SEGMENTATION_IMPORT_ERROR:
+        print(f"[palmistry_model_segment_unavailable] {PALM_SEGMENTATION_IMPORT_ERROR}")
+    return _build_geometric_palm_line_overlays(image, landmarks, hand_side)
+
+
+def _has_valid_palm_line_overlays(overlays):
+    if not isinstance(overlays, list) or len(overlays) < 4:
+        return False
+    for line in overlays:
+        if not isinstance(line, dict):
+            return False
+        points = line.get("points") or []
+        confidence = _safe_float(line.get("confidence")) or 0
+        if len(points) < 8 or confidence < 0.6:
+            return False
+    return True
+
+
+def _build_palmistry_summary_tags(hand_side, structured, analysis):
+    tags = [
+        f"{hand_side}主看",
+        structured.get("palmShape", ""),
+        structured.get("lineClarity", ""),
+        analysis.get("overall", ""),
+    ]
+    if structured.get("fingerSpread"):
+        tags.append(structured.get("fingerSpread", ""))
+    output = []
+    for tag in tags:
+        text = _clean_text(tag)
+        if text and text not in output:
+            output.append(text)
+    return output[:5]
+
+
 def build_palmistry_prompt(profile, hand_side, structured):
     profile_lines = []
     if profile:
@@ -1522,8 +1822,9 @@ def build_palmistry_prompt(profile, hand_side, structured):
         "你是资深手相师。请根据结构化掌纹观察结果输出严格 JSON，不要 markdown，不要解释。"
         "格式："
         "{\"overall\":\"...\",\"summary\":\"...\",\"lifeLine\":\"...\",\"headLine\":\"...\",\"heartLine\":\"...\","
-        "\"career\":\"...\",\"wealth\":\"...\",\"love\":\"...\",\"health\":\"...\",\"advice\":\"...\"}"
+        "\"career\":\"...\",\"wealth\":\"...\",\"love\":\"...\",\"health\":\"...\",\"advice\":\"...\",\"summaryTags\":[\"标签1\",\"标签2\"]}"
         "要求：summary 60~110 字，其余每项 50~120 字，语言自然，不要绝对化，不要做医疗诊断。"
+        "summaryTags 输出 3~5 个简短标签。"
         f"识别手别：{hand_side}。"
         f"结构化观察：掌型={structured.get('palmShape', '')}；舒展度={structured.get('fingerSpread', '')}；"
         f"掌纹清晰度={structured.get('lineClarity', '')}；质量备注={structured.get('qualitySummary', '')}；"
@@ -1569,6 +1870,23 @@ def _default_palmistry_analysis(hand_side, structured):
         "love": "情感议题上宜慢热观察，先看行动一致性，不宜只凭一时的热度判断长期走向。",
         "health": "这里只能给生活层面的提醒：近期更需要关注睡眠、肩颈与手部疲劳，不替代医疗建议。",
         "advice": "未来一周优先做一件能落地的小事：确认一个计划、完成一次沟通或收拢一项资源。先让局面变清楚，再决定下一步。",
+        "summaryTags": [],
+    }
+
+
+def _pending_palmistry_analysis():
+    return {
+        "overall": "掌纹分割已完成",
+        "summary": "您的专属天师正在思考中，完整报告生成后可在当前页展开查看。",
+        "lifeLine": "",
+        "headLine": "",
+        "heartLine": "",
+        "career": "",
+        "wealth": "",
+        "love": "",
+        "health": "",
+        "advice": "",
+        "summaryTags": [],
     }
 
 
@@ -1582,15 +1900,36 @@ def _serialize_palmistry_payload(row):
     if not row:
         return None
     taken_at = row.get("taken_at")
-    return {
-        "id": str(row.get("id", "")),
-        "profileId": str(row.get("profile_id", "")),
-        "handSide": row.get("hand_side", "right"),
-        "takenAt": _to_started_at_text(taken_at, "Asia/Shanghai"),
-        "takenAtISO": taken_at.isoformat() if taken_at else "",
-        "originalImageURL": _build_palmistry_file_url(row.get("original_image_path", "")),
-        "thumbnailURL": _build_palmistry_file_url(row.get("thumbnail_path", "")),
-        "analysis": {
+    report_status = _clean_text(row.get("report_status")) or "ready"
+    structured = row.get("structured") or {}
+    raw_overlays = structured.get("overlays") or []
+    overlays = []
+    for line in raw_overlays:
+        points = []
+        for point in line.get("points") or []:
+            if isinstance(point, dict):
+                x = point.get("x")
+                y = point.get("y")
+            elif isinstance(point, (list, tuple)) and len(point) >= 2:
+                x, y = point[0], point[1]
+            else:
+                continue
+            try:
+                points.append({"x": float(x), "y": float(y)})
+            except Exception:
+                continue
+        overlays.append(
+            {
+                "key": line.get("key", ""),
+                "title": line.get("title", ""),
+                "colorHex": line.get("colorHex", ""),
+                "confidence": float(line.get("confidence", 0.0) or 0.0),
+                "points": points,
+            }
+        )
+    analysis = None
+    if report_status == "ready":
+        analysis = {
             "overall": row.get("overall", ""),
             "summary": row.get("summary", ""),
             "lifeLine": row.get("life_line", ""),
@@ -1601,8 +1940,21 @@ def _serialize_palmistry_payload(row):
             "love": row.get("love", ""),
             "health": row.get("health", ""),
             "advice": row.get("advice", ""),
-            "structured": row.get("structured") or {},
-        },
+            "summaryTags": structured.get("summaryTags") or [],
+            "structured": structured,
+        }
+    return {
+        "id": str(row.get("id", "")),
+        "profileId": str(row.get("profile_id", "")),
+        "handSide": row.get("hand_side", "right"),
+        "takenAt": _to_started_at_text(taken_at, "Asia/Shanghai"),
+        "takenAtISO": taken_at.isoformat() if taken_at else "",
+        "originalImageURL": _build_palmistry_file_url(row.get("original_image_path", "")),
+        "thumbnailURL": _build_palmistry_file_url(row.get("thumbnail_path", "")),
+        "overlays": overlays,
+        "reportStatus": report_status,
+        "reportError": row.get("report_error"),
+        "analysis": analysis,
     }
 
 
@@ -1628,7 +1980,7 @@ def list_palmistry_history(profile_id, limit=30):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT id, profile_id, hand_side, taken_at, thumbnail_path, summary, overall
+                SELECT id, profile_id, hand_side, taken_at, thumbnail_path, summary, overall, report_status
                 FROM palm_readings
                 WHERE profile_id = %s
                 ORDER BY taken_at DESC, created_at DESC
@@ -1648,6 +2000,7 @@ def list_palmistry_history(profile_id, limit=30):
                 "takenAt": _to_started_at_text(taken_at, "Asia/Shanghai"),
                 "takenAtISO": taken_at.isoformat() if taken_at else "",
                 "thumbnailURL": _build_palmistry_file_url(row.get("thumbnail_path", "")),
+                "reportStatus": _clean_text(row.get("report_status")) or "ready",
                 "summary": row.get("summary", ""),
                 "overall": row.get("overall", ""),
             }
@@ -1692,6 +2045,110 @@ def fetch_profile(profile_id):
                 "placeSource": row.get("place_source", ""),
                 "locationAdcode": row.get("location_adcode", ""),
             }
+
+
+def _fetch_palmistry_row(profile_id, reading_id):
+    with get_db_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM palm_readings
+                WHERE profile_id = %s AND id = %s
+                LIMIT 1
+                """,
+                (str(profile_id), str(reading_id)),
+            )
+            return cur.fetchone()
+
+
+def _generate_palmistry_report_for_reading(profile_id, reading_id):
+    row = _fetch_palmistry_row(profile_id, reading_id)
+    if not row:
+        return
+    structured = row.get("structured") or {}
+    hand_side = "左手" if row.get("hand_side") == "left" else "右手"
+    profile = fetch_profile(profile_id)
+    analysis = _default_palmistry_analysis(hand_side, structured)
+    try:
+        prompt = build_palmistry_prompt(profile, hand_side, structured)
+        raw = spark_chat(
+            [{"role": "system", "content": prompt}, {"role": "user", "content": "开始解读这次手相。"}],
+            recv_timeout=4,
+            max_duration=8,
+        )
+        parsed = parse_palmistry_response(raw)
+        if isinstance(parsed, dict):
+            for key in ["overall", "summary", "lifeLine", "headLine", "heartLine", "career", "wealth", "love", "health", "advice"]:
+                if _clean_text(parsed.get(key)):
+                    analysis[key] = _clean_text(parsed.get(key))
+            if isinstance(parsed.get("summaryTags"), list):
+                analysis["summaryTags"] = [_clean_text(item) for item in parsed.get("summaryTags") if _clean_text(item)]
+    except Exception as exc:
+        print(f"[palmistry_fallback] {exc}")
+
+    analysis["summaryTags"] = analysis.get("summaryTags") or _build_palmistry_summary_tags(hand_side, structured, analysis)
+    structured["summaryTags"] = analysis["summaryTags"]
+
+    with get_db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE palm_readings
+                SET structured = %s,
+                    overall = %s,
+                    summary = %s,
+                    life_line = %s,
+                    head_line = %s,
+                    heart_line = %s,
+                    career = %s,
+                    wealth = %s,
+                    love = %s,
+                    health = %s,
+                    advice = %s,
+                    report_status = 'ready',
+                    report_error = NULL,
+                    report_generated_at = now()
+                WHERE profile_id = %s AND id = %s
+                """,
+                (
+                    psycopg2.extras.Json(structured),
+                    analysis["overall"],
+                    analysis["summary"],
+                    analysis["lifeLine"],
+                    analysis["headLine"],
+                    analysis["heartLine"],
+                    analysis["career"],
+                    analysis["wealth"],
+                    analysis["love"],
+                    analysis["health"],
+                    analysis["advice"],
+                    str(profile_id),
+                    str(reading_id),
+                ),
+            )
+
+
+def _queue_palmistry_report(profile_id, reading_id):
+    def runner():
+        try:
+            _generate_palmistry_report_for_reading(profile_id, reading_id)
+            print(f"[palmistry] report ready reading={reading_id}")
+        except Exception as exc:
+            print(f"[palmistry_report_error] {exc}")
+            with get_db_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE palm_readings
+                        SET report_status = 'failed',
+                            report_error = %s
+                        WHERE profile_id = %s AND id = %s
+                        """,
+                        (str(exc), str(profile_id), str(reading_id)),
+                    )
+
+    threading.Thread(target=runner, daemon=True).start()
 
 
 def resolve_tianshi_prompt(tianshi_id, now_str):
@@ -1949,8 +2406,8 @@ def serve_palmistry_upload(filename):
     return send_from_directory(PALMISTRY_UPLOAD_DIR, filename)
 
 
-@app.post("/palmistry/analyze")
-def analyze_palmistry():
+@app.post("/palmistry/segment")
+def segment_palmistry():
     payload = request.get_json(silent=True) or {}
     profile_id = payload.get("profileId") or payload.get("profile_id")
     if not profile_id:
@@ -1967,20 +2424,15 @@ def analyze_palmistry():
     profile = fetch_profile(profile_id)
 
     try:
+        print(f"[palmistry] segment start profile={profile_id} hand={hand_side}")
         reading_id, original_name, thumb_name, image = _save_palmistry_images(image_bytes)
         structured, pipeline = _compose_palmistry_structure(image, landmarks)
-        prompt = build_palmistry_prompt(profile, "左手" if hand_side == "left" else "右手", structured)
-        analysis = _default_palmistry_analysis("左手" if hand_side == "left" else "右手", structured)
-        try:
-            raw = spark_chat([{"role": "system", "content": prompt}, {"role": "user", "content": "开始解读这次手相。"}])
-            parsed = parse_palmistry_response(raw)
-            if isinstance(parsed, dict):
-                for key in ["overall", "summary", "lifeLine", "headLine", "heartLine", "career", "wealth", "love", "health", "advice"]:
-                    if _clean_text(parsed.get(key)):
-                        analysis[key] = _clean_text(parsed.get(key))
-                pipeline = pipeline + "+spark"
-        except Exception as exc:
-            print(f"[palmistry_fallback] {exc}")
+        overlays = _build_palm_line_overlays(image, landmarks, "左手" if hand_side == "left" else "右手")
+        if not _has_valid_palm_line_overlays(overlays):
+            return jsonify({"error": "未能稳定识别四条主线，请重新拍照"}), 422
+        analysis = _pending_palmistry_analysis()
+        structured["overlays"] = overlays
+        structured["summaryTags"] = []
 
         with get_db_conn() as conn:
             with conn.cursor() as cur:
@@ -1989,9 +2441,10 @@ def analyze_palmistry():
                     INSERT INTO palm_readings (
                         id, profile_id, hand_side, taken_at, original_image_path, thumbnail_path,
                         structured, overall, summary, life_line, head_line, heart_line,
-                        career, wealth, love, health, advice, source_pipeline
+                        career, wealth, love, health, advice, source_pipeline,
+                        report_status, report_error
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         reading_id,
@@ -2011,16 +2464,67 @@ def analyze_palmistry():
                         analysis["love"],
                         analysis["health"],
                         analysis["advice"],
-                        pipeline,
+                        pipeline + "+segment",
+                        "pending",
+                        None,
                     ),
                 )
         stored = fetch_palmistry_reading(profile_id, reading_id)
         if not stored:
-            return jsonify({"error": "failed to persist palm reading"}), 500
+            return jsonify({"error": "failed to persist palm segment"}), 500
+        print(f"[palmistry] segment success reading={reading_id} pipeline={pipeline}")
         return jsonify(stored)
     except Exception as exc:  # noqa: BLE001
-        print(f"[palmistry_error] {exc}")
+        print(f"[palmistry_segment_error] {exc}")
         return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/palmistry/report")
+def start_palmistry_report():
+    payload = request.get_json(silent=True) or {}
+    profile_id = payload.get("profileId") or payload.get("profile_id")
+    reading_id = payload.get("readingId") or payload.get("reading_id")
+    if not profile_id or not reading_id:
+        return jsonify({"error": "profileId and readingId required"}), 400
+    row = _fetch_palmistry_row(profile_id, reading_id)
+    if not row:
+        return jsonify({"error": "not found"}), 404
+    report_status = _clean_text(row.get("report_status")) or "pending"
+    if report_status == "ready":
+        return jsonify({"ok": True, "status": "ready"})
+    with get_db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE palm_readings
+                SET report_status = 'pending',
+                    report_error = NULL,
+                    report_requested_at = now()
+                WHERE profile_id = %s AND id = %s
+                """,
+                (str(profile_id), str(reading_id)),
+            )
+    _queue_palmistry_report(profile_id, reading_id)
+    return jsonify({"ok": True, "status": "pending"})
+
+
+@app.get("/palmistry/<reading_id>/report-status")
+def palmistry_report_status(reading_id):
+    profile_id = request.args.get("profile_id") or request.args.get("profileId")
+    if not profile_id:
+        return jsonify({"error": "profile_id required"}), 400
+    row = _fetch_palmistry_row(profile_id, reading_id)
+    if not row:
+        return jsonify({"error": "not found"}), 404
+    payload = _serialize_palmistry_payload(row)
+    return jsonify(
+        {
+            "readingId": str(reading_id),
+            "reportStatus": payload.get("reportStatus", "pending"),
+            "reportError": payload.get("reportError"),
+            "result": payload,
+        }
+    )
 
 
 @app.get("/palmistry/history")

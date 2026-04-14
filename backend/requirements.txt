@@ -4,3 +4,8 @@ psycopg2-binary
 python-dotenv
 lunar_python>=1.4.0
 Pillow
+numpy
+opencv-python-headless
+scikit-image
+torch
+torchvision

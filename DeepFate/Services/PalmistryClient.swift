@@ -30,14 +30,14 @@ struct PalmistryClient {
         return URLSession(configuration: config)
     }()
 
-    func analyze(
+    func segment(
         profileId: UUID,
         handSide: PalmHandSide,
         capturedAt: Date,
         image: UIImage,
         landmarks: [String: PalmLandmarkPoint]
     ) async throws -> PalmistryResult {
-        guard let jpegData = image.jpegData(compressionQuality: 0.86) else {
+        guard let jpegData = image.jpegData(compressionQuality: 0.94) else {
             throw PalmistryClientError.encodeFailed
         }
         let payload = PalmistryAnalyzeRequest(
@@ -51,7 +51,7 @@ struct PalmistryClient {
         )
 
         return try await backend.performRequest { baseURL in
-            guard let url = URL(string: baseURL + "/palmistry/analyze") else {
+            guard let url = URL(string: baseURL + "/palmistry/segment") else {
                 throw PalmistryClientError.invalidURL
             }
             var request = URLRequest(url: url)
@@ -61,6 +61,48 @@ struct PalmistryClient {
 
             let (data, response) = try await session.data(for: request)
             return try decodeResult(data: data, response: response)
+        }
+    }
+
+    func startReport(profileId: UUID, readingId: String) async throws {
+        try await backend.performRequest { baseURL in
+            guard let url = URL(string: baseURL + "/palmistry/report") else {
+                throw PalmistryClientError.invalidURL
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(
+                PalmistryReportStartRequest(profileId: profileId.uuidString, readingId: readingId)
+            )
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw PalmistryClientError.invalidResponse
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                throw PalmistryClientError.serverError(code: http.statusCode, message: nil)
+            }
+        }
+    }
+
+    func fetchReportStatus(profileId: UUID, readingId: String) async throws -> PalmistryReportStatusPayload {
+        try await backend.performRequest { baseURL in
+            guard var components = URLComponents(string: baseURL + "/palmistry/\(readingId)/report-status") else {
+                throw PalmistryClientError.invalidURL
+            }
+            components.queryItems = [URLQueryItem(name: "profile_id", value: profileId.uuidString)]
+            guard let url = components.url else {
+                throw PalmistryClientError.invalidURL
+            }
+            let (data, response) = try await session.data(from: url)
+            guard let http = response as? HTTPURLResponse else {
+                throw PalmistryClientError.invalidResponse
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+                throw PalmistryClientError.serverError(code: http.statusCode, message: msg)
+            }
+            return try JSONDecoder().decode(PalmistryReportStatusPayload.self, from: data)
         }
     }
 
@@ -128,4 +170,9 @@ private struct PalmistryAnalyzeRequest: Encodable {
     let landmarks: [String: PalmLandmarkPoint]
     let imageWidth: Int
     let imageHeight: Int
+}
+
+private struct PalmistryReportStartRequest: Encodable {
+    let profileId: String
+    let readingId: String
 }

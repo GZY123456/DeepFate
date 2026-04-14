@@ -9,8 +9,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 应用代码与数据文件
 COPY spark_server.py .
+COPY palm_segmentation.py .
 COPY locations.json .
 COPY profiles.json .
+COPY models ./models
 
 # 运行时通过 env_file / environment 注入 .env 和数据库连接
 EXPOSE 8000
