@@ -1805,6 +1805,134 @@ def _build_palmistry_summary_tags(hand_side, structured, analysis):
     return output[:5]
 
 
+def _polyline_length(points):
+    if not isinstance(points, list) or len(points) < 2:
+        return 0.0
+    total = 0.0
+    for prev, current in zip(points, points[1:]):
+        x1 = _safe_float(prev.get("x")) if isinstance(prev, dict) else None
+        y1 = _safe_float(prev.get("y")) if isinstance(prev, dict) else None
+        x2 = _safe_float(current.get("x")) if isinstance(current, dict) else None
+        y2 = _safe_float(current.get("y")) if isinstance(current, dict) else None
+        if None in (x1, y1, x2, y2):
+            continue
+        total += math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+    return total
+
+
+def _line_descriptor_from_points(line):
+    points = line.get("points") or []
+    normalized = []
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        x = _safe_float(point.get("x"))
+        y = _safe_float(point.get("y"))
+        if x is None or y is None:
+            continue
+        normalized.append({"x": _clamp01(x), "y": _clamp01(y)})
+    if len(normalized) < 2:
+        return None
+    ordered = sorted(normalized, key=lambda item: item["x"])
+    start = ordered[0]
+    end = ordered[-1]
+    min_x = min(item["x"] for item in normalized)
+    max_x = max(item["x"] for item in normalized)
+    min_y = min(item["y"] for item in normalized)
+    max_y = max(item["y"] for item in normalized)
+    width = max(max_x - min_x, 0.0001)
+    height = max(max_y - min_y, 0.0001)
+    length = _polyline_length(normalized)
+    direct = math.sqrt((end["x"] - start["x"]) ** 2 + (end["y"] - start["y"]) ** 2)
+    curvature = length / max(direct, 0.0001)
+    slope = end["y"] - start["y"]
+    x_center = (min_x + max_x) / 2
+    y_center = (min_y + max_y) / 2
+    continuity = "连贯度较好" if len(normalized) >= 18 else "局部略有断续"
+    if abs(slope) < 0.035:
+        trend = "整体趋于平直"
+    elif slope > 0:
+        trend = "末端向下走"
+    else:
+        trend = "末端向上扬"
+    if curvature > 1.35:
+        shape = "弧度明显"
+    elif curvature > 1.12:
+        shape = "带有自然弯度"
+    else:
+        shape = "线势偏直"
+    if length > 0.62:
+        length_label = "长度偏长"
+    elif length > 0.42:
+        length_label = "长度中等"
+    else:
+        length_label = "长度偏短"
+    if x_center < 0.38:
+        horizontal_zone = "偏掌内侧"
+    elif x_center > 0.62:
+        horizontal_zone = "偏掌外侧"
+    else:
+        horizontal_zone = "位于掌心中轴附近"
+    if y_center < 0.34:
+        vertical_zone = "靠近指根区域"
+    elif y_center > 0.68:
+        vertical_zone = "更接近掌根区域"
+    else:
+        vertical_zone = "位于掌心中段"
+    return {
+        "length": round(length, 3),
+        "curvature": round(curvature, 3),
+        "slope": round(slope, 3),
+        "widthSpan": round(width, 3),
+        "heightSpan": round(height, 3),
+        "trend": trend,
+        "shape": shape,
+        "lengthLabel": length_label,
+        "continuity": continuity,
+        "horizontalZone": horizontal_zone,
+        "verticalZone": vertical_zone,
+    }
+
+
+def _build_line_observation_text(line):
+    descriptor = _line_descriptor_from_points(line)
+    if not descriptor:
+        return "线条特征暂不稳定，需要结合下一次拍摄再看。"
+    return (
+        f"{descriptor['lengthLabel']}，{descriptor['shape']}，{descriptor['trend']}，"
+        f"{descriptor['continuity']}，{descriptor['verticalZone']}，{descriptor['horizontalZone']}。"
+    )
+
+
+def _enrich_palmistry_structure_with_line_features(structured, overlays):
+    if not isinstance(structured, dict):
+        structured = {}
+    features = {}
+    by_key = {}
+    for line in overlays or []:
+        if isinstance(line, dict) and line.get("key"):
+            by_key[line.get("key")] = line
+            descriptor = _line_descriptor_from_points(line)
+            if descriptor:
+                features[line.get("key")] = descriptor
+    if features:
+        structured["lineFeatures"] = features
+    if "life_line" in by_key:
+        structured["lifeLine"] = _build_line_observation_text(by_key["life_line"])
+    if "head_line" in by_key:
+        structured["headLine"] = _build_line_observation_text(by_key["head_line"])
+    if "heart_line" in by_key:
+        structured["heartLine"] = _build_line_observation_text(by_key["heart_line"])
+    if "career_line" in by_key:
+        structured["careerLine"] = _build_line_observation_text(by_key["career_line"])
+    notes = list(structured.get("notes") or [])
+    available_lines = [line.get("title") for line in overlays or [] if isinstance(line, dict) and line.get("title")]
+    if available_lines:
+        notes.append("已分析主线：" + "、".join(available_lines))
+    structured["notes"] = list(dict.fromkeys(notes))[:8]
+    return structured
+
+
 def build_palmistry_prompt(profile, hand_side, structured):
     profile_lines = []
     if profile:
@@ -1818,19 +1946,36 @@ def build_palmistry_prompt(profile, hand_side, structured):
         ])
     metrics = structured.get("metrics") or {}
     metrics_text = "、".join(f"{key}={value}" for key, value in metrics.items())
+    line_features = structured.get("lineFeatures") or {}
+    line_feature_lines = []
+    feature_labels = {
+        "life_line": "生命线",
+        "head_line": "智慧线",
+        "heart_line": "爱情线",
+        "career_line": "事业线",
+    }
+    for key, label in feature_labels.items():
+        descriptor = line_features.get(key) or {}
+        if descriptor:
+            line_feature_lines.append(
+                f"{label}: 长度={descriptor.get('lengthLabel', '')}，弧度={descriptor.get('shape', '')}，"
+                f"走向={descriptor.get('trend', '')}，连贯度={descriptor.get('continuity', '')}，"
+                f"位置={descriptor.get('verticalZone', '')}/{descriptor.get('horizontalZone', '')}"
+            )
     return (
         "你是资深手相师。请根据结构化掌纹观察结果输出严格 JSON，不要 markdown，不要解释。"
         "格式："
         "{\"overall\":\"...\",\"summary\":\"...\",\"lifeLine\":\"...\",\"headLine\":\"...\",\"heartLine\":\"...\","
         "\"career\":\"...\",\"wealth\":\"...\",\"love\":\"...\",\"health\":\"...\",\"advice\":\"...\",\"summaryTags\":[\"标签1\",\"标签2\"]}"
-        "要求：summary 60~110 字，其余每项 50~120 字，语言自然，不要绝对化，不要做医疗诊断。"
+        "要求：先逐条分析线条的长度、弧度、走向、连贯度和位置，再在此基础上给出命格命理层面的归纳。"
+        "summary 60~110 字，其余每项 50~120 字，语言自然，不要绝对化，不要做医疗诊断。"
         "summaryTags 输出 3~5 个简短标签。"
         f"识别手别：{hand_side}。"
         f"结构化观察：掌型={structured.get('palmShape', '')}；舒展度={structured.get('fingerSpread', '')}；"
         f"掌纹清晰度={structured.get('lineClarity', '')}；质量备注={structured.get('qualitySummary', '')}；"
         f"生命线观察={structured.get('lifeLine', '')}；智慧线观察={structured.get('headLine', '')}；"
         f"感情线观察={structured.get('heartLine', '')}；事业线观察={structured.get('careerLine', '')}；"
-        f"补充={';'.join(structured.get('notes') or [])}；指标={metrics_text}。"
+        f"逐线几何特征={'；'.join(line_feature_lines)}；补充={';'.join(structured.get('notes') or [])}；指标={metrics_text}。"
         + (" 用户档案：" + " ".join(profile_lines) if profile_lines else "")
     )
 
@@ -1854,18 +1999,22 @@ def parse_palmistry_response(text):
 
 
 def _default_palmistry_analysis(hand_side, structured):
+    life_observation = structured.get("lifeLine", "生命线观感偏稳，近期核心状态重在恢复节律与体能储备。")
+    head_observation = structured.get("headLine", "智慧线倾向理性规划，但容易在细节上反复权衡。")
+    heart_observation = structured.get("heartLine", "感情线反馈更强调安全感与边界感。")
+    career_observation = structured.get("careerLine", "事业线节奏偏稳，适合先稳岗位与资源。")
     summary = (
         f"这次读取的是{hand_side}，整体呈现“{structured.get('palmShape', '掌型均衡')}、"
         f"{structured.get('fingerSpread', '舒展适中')}、{structured.get('lineClarity', '掌纹中等清晰')}”的组合。"
-        "当前更适合稳住节奏、先做确认再推进，属于可进但不宜躁进的手相走势。"
+        "线条整体以先看走势、再看应事为主，当前更适合稳住节奏、先做确认再推进。"
     )
     return {
         "overall": "稳中可进",
         "summary": summary,
-        "lifeLine": "生命线观感偏稳，近期核心状态重在恢复节律与体能储备，适合把作息与消耗控制住。",
-        "headLine": "智慧线倾向理性规划，但容易在细节上反复权衡，关键决策宜限定时间窗口，不要拖太久。",
-        "heartLine": "感情线反馈更强调安全感与边界感，关系推进宜先看对方是否持续稳定回应。",
-        "career": "事业上适合先稳岗位、稳资源，再谈扩张。近期更适合做整理、补漏、复盘型工作。",
+        "lifeLine": life_observation,
+        "headLine": head_observation,
+        "heartLine": heart_observation,
+        "career": career_observation,
         "wealth": "财运表现偏稳健，适合守住现金流和预算纪律，不宜因为情绪起伏做冲动消费或冒进投入。",
         "love": "情感议题上宜慢热观察，先看行动一致性，不宜只凭一时的热度判断长期走向。",
         "health": "这里只能给生活层面的提醒：近期更需要关注睡眠、肩颈与手部疲劳，不替代医疗建议。",
@@ -2067,6 +2216,7 @@ def _generate_palmistry_report_for_reading(profile_id, reading_id):
     if not row:
         return
     structured = row.get("structured") or {}
+    structured = _enrich_palmistry_structure_with_line_features(structured, structured.get("overlays") or [])
     hand_side = "左手" if row.get("hand_side") == "left" else "右手"
     profile = fetch_profile(profile_id)
     analysis = _default_palmistry_analysis(hand_side, structured)
@@ -2432,6 +2582,7 @@ def segment_palmistry():
             return jsonify({"error": "未能稳定识别四条主线，请重新拍照"}), 422
         analysis = _pending_palmistry_analysis()
         structured["overlays"] = overlays
+        structured = _enrich_palmistry_structure_with_line_features(structured, overlays)
         structured["summaryTags"] = []
 
         with get_db_conn() as conn:

@@ -1133,97 +1133,48 @@ private enum PalmGuideGeometry {
         let rotation: CGFloat
     }
 
+    private struct SVGTemplate {
+        enum Command {
+            case move(CGPoint)
+            case line(CGPoint)
+            case cubic(CGPoint, CGPoint, CGPoint)
+            case close
+        }
+
+        let viewBox: CGRect
+        let commands: [Command]
+    }
+
     static func visualPath(in rect: CGRect, thumbOnLeft: Bool) -> Path {
-        func map(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            let mirroredX = thumbOnLeft ? x : 1 - x
+        let template = rearLeftTemplate ?? fallbackTemplate
+
+        func map(_ point: CGPoint) -> CGPoint {
+            let normalizedX = (point.x - template.viewBox.minX) / template.viewBox.width
+            let normalizedY = (point.y - template.viewBox.minY) / template.viewBox.height
+            let mirroredX = thumbOnLeft ? normalizedX : 1 - normalizedX
             return CGPoint(
                 x: rect.minX + mirroredX * rect.width,
-                y: rect.minY + y * rect.height
+                y: rect.minY + normalizedY * rect.height
             )
         }
 
         var path = Path()
-
-        // ── 手腕底部（起点）──
-        path.move(to: map(0.22, 0.99))
-
-        // ── 左侧手腕→掌根（更宽）──
-        path.addCurve(to: map(0.04, 0.74),
-                      control1: map(0.14, 0.99), control2: map(0.02, 0.88))
-
-        // ── 拇指（外侧边缘，斜向左下方约45°伸出）──
-        path.addCurve(to: map(-0.08, 0.58),
-                      control1: map(0.02, 0.70), control2: map(-0.04, 0.64))
-        path.addCurve(to: map(-0.14, 0.40),
-                      control1: map(-0.11, 0.52), control2: map(-0.14, 0.46))
-        // ── 拇指尖（圆润弧线）──
-        path.addCurve(to: map(-0.08, 0.30),
-                      control1: map(-0.14, 0.34), control2: map(-0.12, 0.30))
-        // ── 拇指（内侧边缘，回到掌面）──
-        path.addCurve(to: map(0.02, 0.36),
-                      control1: map(-0.04, 0.30), control2: map(-0.01, 0.32))
-        path.addCurve(to: map(0.10, 0.44),
-                      control1: map(0.04, 0.38), control2: map(0.07, 0.42))
-
-        // ── 虎口（位置低于小指指根 y=0.40）──
-        path.addCurve(to: map(0.16, 0.50),
-                      control1: map(0.12, 0.46), control2: map(0.14, 0.49))
-
-        // ── 食指（从虎口起始，向左微倾）──
-        path.addCurve(to: map(0.15, 0.04),
-                      control1: map(0.16, 0.40), control2: map(0.14, 0.12))
-        path.addCurve(to: map(0.25, 0.01),
-                      control1: map(0.16, -0.01), control2: map(0.20, -0.03))
-        path.addCurve(to: map(0.30, 0.34),
-                      control1: map(0.28, 0.04), control2: map(0.30, 0.22))
-
-        // ── 食指-中指指缝 ──
-        path.addCurve(to: map(0.35, 0.36),
-                      control1: map(0.30, 0.35), control2: map(0.33, 0.37))
-
-        // ── 中指（最长）──
-        path.addCurve(to: map(0.38, -0.04),
-                      control1: map(0.35, 0.26), control2: map(0.37, 0.04))
-        path.addCurve(to: map(0.49, -0.06),
-                      control1: map(0.39, -0.08), control2: map(0.44, -0.09))
-        path.addCurve(to: map(0.55, 0.34),
-                      control1: map(0.53, -0.04), control2: map(0.56, 0.18))
-
-        // ── 中指-无名指指缝 ──
-        path.addCurve(to: map(0.60, 0.36),
-                      control1: map(0.55, 0.35), control2: map(0.58, 0.37))
-
-        // ── 无名指（向右微倾）──
-        path.addCurve(to: map(0.64, 0.00),
-                      control1: map(0.60, 0.26), control2: map(0.63, 0.08))
-        path.addCurve(to: map(0.74, -0.01),
-                      control1: map(0.65, -0.04), control2: map(0.70, -0.05))
-        path.addCurve(to: map(0.78, 0.36),
-                      control1: map(0.77, 0.02), control2: map(0.79, 0.22))
-
-        // ── 无名指-小指指缝 ──
-        path.addCurve(to: map(0.82, 0.40),
-                      control1: map(0.78, 0.37), control2: map(0.80, 0.41))
-
-        // ── 小指（向右外倾）──
-        path.addCurve(to: map(0.87, 0.10),
-                      control1: map(0.82, 0.32), control2: map(0.86, 0.16))
-        path.addCurve(to: map(0.96, 0.09),
-                      control1: map(0.88, 0.05), control2: map(0.93, 0.04))
-        path.addCurve(to: map(0.97, 0.44),
-                      control1: map(0.98, 0.13), control2: map(0.98, 0.32))
-
-        // ── 右侧掌缘下行 ──
-        path.addCurve(to: map(0.94, 0.74),
-                      control1: map(0.97, 0.56), control2: map(0.96, 0.68))
-        path.addCurve(to: map(0.74, 0.99),
-                      control1: map(0.92, 0.86), control2: map(0.84, 0.98))
-
-        // ── 手腕底部（收窄）──
-        path.addCurve(to: map(0.22, 0.99),
-                      control1: map(0.58, 1.01), control2: map(0.36, 1.01))
-
-        path.closeSubpath()
+        for command in template.commands {
+            switch command {
+            case .move(let point):
+                path.move(to: map(point))
+            case .line(let point):
+                path.addLine(to: map(point))
+            case .cubic(let end, let control1, let control2):
+                path.addCurve(
+                    to: map(end),
+                    control1: map(control1),
+                    control2: map(control2)
+                )
+            case .close:
+                path.closeSubpath()
+            }
+        }
         return path
     }
 
@@ -1265,6 +1216,129 @@ private enum PalmGuideGeometry {
             Component(rect: orient(0.50, 0.09, 0.11, 0.34), rotation: thumbOnLeft ? 0.03 : -0.03),
             Component(rect: orient(0.63, 0.16, 0.10, 0.26), rotation: thumbOnLeft ? 0.06 : -0.06)
         ]
+    }
+
+    private static let rearLeftTemplate: SVGTemplate? = loadSVGTemplate(named: "rear_left_palm")
+
+    private static let fallbackTemplate = SVGTemplate(
+        viewBox: CGRect(x: 0, y: 0, width: 112, height: 164),
+        commands: [
+            .move(CGPoint(x: 36, y: 156)),
+            .cubic(CGPoint(x: 14, y: 139), CGPoint(x: 26, y: 154), CGPoint(x: 18, y: 149)),
+            .cubic(CGPoint(x: 9, y: 102), CGPoint(x: 10, y: 128), CGPoint(x: 9, y: 116)),
+            .cubic(CGPoint(x: 10, y: 62), CGPoint(x: 9, y: 88), CGPoint(x: 8, y: 74)),
+            .cubic(CGPoint(x: 24, y: 42), CGPoint(x: 12, y: 52), CGPoint(x: 17, y: 45)),
+            .cubic(CGPoint(x: 25, y: 19), CGPoint(x: 20, y: 34), CGPoint(x: 21, y: 25)),
+            .cubic(CGPoint(x: 39, y: 18), CGPoint(x: 29, y: 13), CGPoint(x: 35, y: 12)),
+            .cubic(CGPoint(x: 68, y: 20), CGPoint(x: 41, y: 10), CGPoint(x: 47, y: 5)),
+            .cubic(CGPoint(x: 90, y: 28), CGPoint(x: 71, y: 12), CGPoint(x: 77, y: 9)),
+            .cubic(CGPoint(x: 109, y: 42), CGPoint(x: 94, y: 21), CGPoint(x: 100, y: 19)),
+            .cubic(CGPoint(x: 107, y: 80), CGPoint(x: 109, y: 54), CGPoint(x: 108, y: 67)),
+            .cubic(CGPoint(x: 106, y: 128), CGPoint(x: 107, y: 97), CGPoint(x: 107, y: 113)),
+            .cubic(CGPoint(x: 92, y: 154), CGPoint(x: 105, y: 140), CGPoint(x: 100, y: 149)),
+            .cubic(CGPoint(x: 63, y: 161), CGPoint(x: 84, y: 159), CGPoint(x: 74, y: 161)),
+            .cubic(CGPoint(x: 36, y: 156), CGPoint(x: 53, y: 161), CGPoint(x: 44, y: 160)),
+            .close
+        ]
+    )
+
+    private static func loadSVGTemplate(named name: String) -> SVGTemplate? {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "svg") else {
+            return nil
+        }
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+
+        let viewBoxPattern = #"viewBox="([^"]+)""#
+        let pathPattern = #"<path[^>]*d="([^"]+)""#
+
+        guard
+            let viewBoxMatch = contents.range(of: viewBoxPattern, options: .regularExpression),
+            let pathMatch = contents.range(of: pathPattern, options: .regularExpression)
+        else {
+            return nil
+        }
+
+        let viewBoxString = String(contents[viewBoxMatch])
+            .replacingOccurrences(of: "viewBox=\"", with: "")
+            .replacingOccurrences(of: "\"", with: "")
+        let pathString = String(contents[pathMatch])
+            .replacingOccurrences(of: #"<path d=""#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^<path[^>]*d=""#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\"", with: "")
+
+        let viewBoxNumbers = viewBoxString
+            .split(whereSeparator: \.isWhitespace)
+            .compactMap { Double($0) }
+        guard viewBoxNumbers.count == 4 else { return nil }
+
+        guard let commands = parseSVGPathData(pathString), !commands.isEmpty else {
+            return nil
+        }
+
+        return SVGTemplate(
+            viewBox: CGRect(
+                x: viewBoxNumbers[0],
+                y: viewBoxNumbers[1],
+                width: viewBoxNumbers[2],
+                height: viewBoxNumbers[3]
+            ),
+            commands: commands
+        )
+    }
+
+    private static func parseSVGPathData(_ pathData: String) -> [SVGTemplate.Command]? {
+        let pattern = #"[A-Za-z]|-?\d*\.?\d+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let nsRange = NSRange(pathData.startIndex..<pathData.endIndex, in: pathData)
+        let tokens = regex.matches(in: pathData, range: nsRange).compactMap { match -> String? in
+            guard let range = Range(match.range, in: pathData) else { return nil }
+            return String(pathData[range])
+        }
+
+        var commands: [SVGTemplate.Command] = []
+        var index = 0
+        var currentCommand = ""
+
+        func readNumber() -> CGFloat? {
+            guard index < tokens.count else { return nil }
+            let token = tokens[index]
+            guard let value = Double(token) else { return nil }
+            index += 1
+            return CGFloat(value)
+        }
+
+        while index < tokens.count {
+            let token = tokens[index]
+            if token.range(of: #"^[A-Za-z]$"#, options: .regularExpression) != nil {
+                currentCommand = token
+                index += 1
+            }
+
+            switch currentCommand {
+            case "M":
+                guard let x = readNumber(), let y = readNumber() else { return nil }
+                commands.append(.move(CGPoint(x: x, y: y)))
+                currentCommand = "L"
+            case "L":
+                guard let x = readNumber(), let y = readNumber() else { return nil }
+                commands.append(.line(CGPoint(x: x, y: y)))
+            case "C":
+                guard
+                    let x1 = readNumber(), let y1 = readNumber(),
+                    let x2 = readNumber(), let y2 = readNumber(),
+                    let x = readNumber(), let y = readNumber()
+                else { return nil }
+                commands.append(.cubic(CGPoint(x: x, y: y), CGPoint(x: x1, y: y1), CGPoint(x: x2, y: y2)))
+            case "Z":
+                commands.append(.close)
+            default:
+                return nil
+            }
+        }
+
+        return commands
     }
 }
 
